@@ -1,6 +1,8 @@
 package tfo
 
 import (
+	"fmt"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -22,7 +24,7 @@ func socket(domain int) (int, error) {
 
 func (c *tfoConn) connect(b []byte) (n int, err error) {
 	n, err = unix.SendmsgN(c.fd, b, nil, c.rsockaddr, 0)
-	if err == unix.EINPROGRESS {
+	if err == unix.EINPROGRESS { // n == 0
 		fds := []unix.PollFd{
 			{
 				Fd:     int32(c.fd),
@@ -30,10 +32,16 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 			},
 		}
 		ret, err := unix.Poll(fds, 0)
-		if ret != 1 || err != nil {
+		if err != nil {
 			return 0, wrapSyscallError("poll", err)
 		}
-		return n, nil
+		if ret != 1 {
+			return 0, fmt.Errorf("unexpected return value from poll(): %d", ret)
+		}
+		if fds[0].Revents&unix.POLLWRNORM != unix.POLLWRNORM {
+			return 0, fmt.Errorf("unexpected revents from poll(): %d", fds[0].Revents)
+		}
+		return c.f.Write(b)
 	}
 	err = wrapSyscallError("sendmsg", err)
 	return
