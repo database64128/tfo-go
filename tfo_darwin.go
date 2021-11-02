@@ -2,6 +2,7 @@ package tfo
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	"github.com/database64128/tfo-go/bsd"
@@ -54,20 +55,27 @@ func socket(domain int) (fd int, err error) {
 }
 
 func (c *tfoConn) connect(b []byte) (n int, err error) {
-	n, err = bsd.Connectx(c.fd, 0, nil, c.rsockaddr, b)
-	if err == unix.EINPROGRESS {
-		fds := []unix.PollFd{
-			{
-				Fd:     int32(c.fd),
-				Events: unix.POLLWRNORM,
-			},
-		}
-		ret, err := unix.Poll(fds, 0)
-		if ret != 1 || err != nil {
-			return 0, wrapSyscallError("poll", err)
-		}
-		return n, nil
+	bytesSent, err := bsd.Connectx(c.fd, 0, nil, c.rsockaddr, b)
+	n = int(bytesSent)
+	if err != nil && err != unix.EINPROGRESS {
+		err = wrapSyscallError("connectx", err)
+		return
 	}
-	err = wrapSyscallError("connectx", err)
-	return
+	fds := []unix.PollFd{
+		{
+			Fd:     int32(c.fd),
+			Events: unix.POLLWRNORM,
+		},
+	}
+	ret, err := unix.Poll(fds, -1)
+	if err != nil {
+		return 0, wrapSyscallError("poll", err)
+	}
+	if ret != 1 {
+		return 0, fmt.Errorf("unexpected return value from poll(): %d", ret)
+	}
+	if fds[0].Revents&unix.POLLWRNORM != unix.POLLWRNORM {
+		return 0, fmt.Errorf("unexpected revents from poll(): %d", fds[0].Revents)
+	}
+	return int(n), nil
 }
