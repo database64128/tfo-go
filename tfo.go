@@ -22,7 +22,7 @@ type TFOConn interface {
 }
 
 func ListenContext(ctx context.Context, network, address string) (net.Listener, error) {
-	return listen(ctx, network, address)
+	return listen(ctx, network, address) // tfo_darwin.go, tfo_notdarwin.go
 }
 
 func Listen(network, address string) (net.Listener, error) {
@@ -38,7 +38,7 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 	if laddr == nil {
 		laddr = &net.TCPAddr{}
 	}
-	ln, err := listen(context.Background(), network, laddr.String())
+	ln, err := listen(context.Background(), network, laddr.String()) // tfo_darwin.go, tfo_notdarwin.go
 	if err != nil && err != ErrPlatformUnsupported {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func Dial(network, address string) (net.Conn, error) {
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		return dialTFO(network, laddr, raddr)
+		return dialTFO(network, laddr, raddr) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go
 	default:
 		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: opAddr(raddr), Err: net.UnknownNetworkError(network)}
 	}
