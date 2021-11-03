@@ -3,7 +3,10 @@
 
 package tfo
 
-import "net"
+import (
+	"context"
+	"net"
+)
 
 func SetTFOListener(fd uintptr) error {
 	return ErrPlatformUnsupported
