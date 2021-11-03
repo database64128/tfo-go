@@ -145,14 +145,15 @@ func (c *tfoConn) Read(b []byte) (int, error) {
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.connected {
 		_, err := c.connect(nil)
 		if err != nil {
+			c.mu.Unlock()
 			return 0, err
 		}
 		c.connected = true
 	}
+	c.mu.Unlock()
 
 	n, err := winsock2.Recv(c.fd, b, 0)
 	return int(n), wrapSyscallError("recv", err)
@@ -280,8 +281,8 @@ func (c *tfoConn) Write(b []byte) (int, error) {
 	}
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.connected {
+		c.mu.Unlock()
 		n, err := winsock2.Send(c.fd, b, 0)
 		return int(n), wrapSyscallError("send", err)
 	}
@@ -290,6 +291,7 @@ func (c *tfoConn) Write(b []byte) (int, error) {
 	if n > 0 || err == nil { // setUpdateConnectContext could return error.
 		c.connected = true
 	}
+	c.mu.Unlock()
 	return n, err
 }
 

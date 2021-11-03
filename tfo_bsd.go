@@ -96,14 +96,15 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 
 func (c *tfoConn) Read(b []byte) (int, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.connected {
 		_, err := c.connect(nil)
 		if err != nil {
+			c.mu.Unlock()
 			return 0, err
 		}
 		c.connected = true
 	}
+	c.mu.Unlock()
 	return c.f.Read(b)
 }
 
@@ -126,8 +127,8 @@ func (c *tfoConn) ReadFrom(r io.Reader) (int64, error) {
 
 func (c *tfoConn) Write(b []byte) (int, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.connected {
+		c.mu.Unlock()
 		return c.f.Write(b)
 	}
 
@@ -135,6 +136,7 @@ func (c *tfoConn) Write(b []byte) (int, error) {
 	if err == nil {
 		c.connected = true
 	}
+	c.mu.Unlock()
 	return n, err
 }
 
