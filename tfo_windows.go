@@ -263,6 +263,17 @@ func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error)
 	return
 }
 
+type writerOnly struct {
+	io.Writer
+}
+
+// Fallback implementation of io.ReaderFrom's ReadFrom, when sendfile isn't
+// applicable.
+func genericReadFrom(w io.Writer, r io.Reader) (n int64, err error) {
+	// Use wrapper to hide existing r.ReadFrom from io.Copy.
+	return io.Copy(writerOnly{w}, r)
+}
+
 func (c *tfoConn) Write(b []byte) (int, error) {
 	if !c.writeDeadline.IsZero() && c.writeDeadline.Before(time.Now()) {
 		return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: os.ErrDeadlineExceeded}

@@ -125,14 +125,3 @@ func wrapSyscallError(name string, err error) error {
 	}
 	return err
 }
-
-type writerOnly struct {
-	io.Writer
-}
-
-// Fallback implementation of io.ReaderFrom's ReadFrom, when sendfile isn't
-// applicable.
-func genericReadFrom(w io.Writer, r io.Reader) (n int64, err error) {
-	// Use wrapper to hide existing r.ReadFrom from io.Copy.
-	return io.Copy(writerOnly{w}, r)
-}
