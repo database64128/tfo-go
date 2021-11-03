@@ -9,18 +9,15 @@ import (
 	"syscall"
 )
 
-func listen(ctx context.Context, network, address string) (net.Listener, error) {
-	var lc net.ListenConfig
+func (lc *TFOListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
 	var innerErr error
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-		lc.Control = func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				innerErr = SetTFOListener(fd)
-			})
-		}
+	lc.ListenConfig.Control = func(network, address string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			innerErr = SetTFOListener(fd)
+		})
 	}
-	ln, err := lc.Listen(ctx, network, address)
+	ln, err := lc.ListenConfig.Listen(ctx, network, address)
+	lc.ListenConfig.Control = nil
 	if err != nil {
 		return nil, err
 	}

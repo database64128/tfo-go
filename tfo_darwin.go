@@ -13,29 +13,25 @@ func SetTFOListener(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN, 1)
 }
 
-func listen(ctx context.Context, network, address string) (net.Listener, error) {
-	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, network, address)
+func (lc *TFOListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
+	ln, err := lc.ListenConfig.Listen(ctx, network, address)
 	if err != nil {
 		return nil, err
 	}
 
 	// darwin requires setting TCP_FASTOPEN after bind() and listen() calls.
 	var innerErr error
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-		rawConn, err := ln.(*net.TCPListener).SyscallConn()
-		if err != nil {
-			ln.Close()
-			return nil, err
-		}
-		err = rawConn.Control(func(fd uintptr) {
-			innerErr = SetTFOListener(fd)
-		})
-		if err != nil {
-			ln.Close()
-			return nil, err
-		}
+	rawConn, err := ln.(*net.TCPListener).SyscallConn()
+	if err != nil {
+		ln.Close()
+		return nil, err
+	}
+	err = rawConn.Control(func(fd uintptr) {
+		innerErr = SetTFOListener(fd)
+	})
+	if err != nil {
+		ln.Close()
+		return nil, err
 	}
 	return ln, innerErr
 }

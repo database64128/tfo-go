@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"syscall"
+	"time"
 )
 
 var (
@@ -21,8 +22,28 @@ type TFOConn interface {
 	CloseWrite() error
 }
 
+type TFOListenConfig struct {
+	net.ListenConfig
+
+	// DisableTFO controls whether TCP Fast Open is disabled on this instance of TFOListenConfig.
+	// TCP Fast Open is enabled by default on TFOListenConfig.
+	// Set to true to disable TFO and make TFOListenConfig behave exactly the same as net.ListenConfig.
+	DisableTFO bool
+}
+
+func (lc *TFOListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		if !lc.DisableTFO {
+			return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_notdarwin.go
+		}
+	}
+	return lc.ListenConfig.Listen(ctx, network, address)
+}
+
 func ListenContext(ctx context.Context, network, address string) (net.Listener, error) {
-	return listen(ctx, network, address) // tfo_darwin.go, tfo_notdarwin.go
+	var lc TFOListenConfig
+	return lc.Listen(ctx, network, address)
 }
 
 func Listen(network, address string) (net.Listener, error) {
@@ -38,35 +59,46 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 	if laddr == nil {
 		laddr = &net.TCPAddr{}
 	}
-	ln, err := listen(context.Background(), network, laddr.String()) // tfo_darwin.go, tfo_notdarwin.go
+	var lc TFOListenConfig
+	ln, err := lc.listenTFO(context.Background(), network, laddr.String()) // tfo_darwin.go, tfo_notdarwin.go
 	if err != nil && err != ErrPlatformUnsupported {
 		return nil, err
 	}
 	return ln.(*net.TCPListener), err
 }
 
-//FIXME
-func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	var d net.Dialer
-	var innerErr error
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-		d.Control = func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				innerErr = SetTFODialer(fd)
-			})
-		}
-	}
-	c, err := d.DialContext(ctx, network, address)
-	if err != nil {
-		return nil, err
-	}
-	return c, innerErr
+type TFODialer struct {
+	net.Dialer
+
+	// DisableTFO controls whether TCP Fast Open is disabled on this instance of TFODialer.
+	// TCP Fast Open is enabled by default on TFODialer.
+	// Set to true to disable TFO and make TFODialer behave exactly the same as net.Dialer.
+	DisableTFO bool
 }
 
-//FIXME
+func (d *TFODialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+		if !d.DisableTFO {
+			return d.dialTFOContext(ctx, network, address)
+		}
+	}
+	return d.Dialer.DialContext(ctx, network, address)
+}
+
+func (d *TFODialer) Dial(network, address string) (net.Conn, error) {
+	return d.DialContext(context.Background(), network, address)
+}
+
 func Dial(network, address string) (net.Conn, error) {
-	return DialContext(context.Background(), network, address)
+	var d TFODialer
+	return d.DialContext(context.Background(), network, address)
+}
+
+func DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
+	var d TFODialer
+	d.Timeout = timeout
+	return d.DialContext(context.Background(), network, address)
 }
 
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
