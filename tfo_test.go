@@ -1,6 +1,3 @@
-//go:build !darwin
-// +build !darwin
-
 package tfo
 
 import (
@@ -21,6 +18,23 @@ func TestTFOListenConfigCtrlFn(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
+	if !success {
+		t.Fail()
+	}
+}
+
+func TestTFODialerCtrlFn(t *testing.T) {
+	var success bool
+	d := TFODialer{}
+	d.Control = func(network, address string, c syscall.RawConn) error {
+		success = true
+		return nil
+	}
+	c, err := d.Dial("tcp", "example.com:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
 	if !success {
 		t.Fail()
 	}

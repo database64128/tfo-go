@@ -57,6 +57,10 @@ func socket(domain int) (fd int, err error) {
 	}
 	unix.CloseOnExec(fd)
 	err = unix.SetNonblock(fd, true)
+	if err != nil {
+		unix.Close(fd)
+		fd = 0
+	}
 	return
 }
 

@@ -108,7 +108,7 @@ func DialTimeout(network, address string, timeout time.Duration) (net.Conn, erro
 func DialTCP(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		return dialTFO(network, laddr, raddr) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go
+		return dialTFO(network, laddr, raddr, nil) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go
 	default:
 		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: opAddr(raddr), Err: net.UnknownNetworkError(network)}
 	}

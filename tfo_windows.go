@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -87,7 +88,52 @@ type tfoConn struct {
 	writeDeadline time.Time
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
+// rawConn implements syscall.RawConn.
+type rawConn struct {
+	fd windows.Handle
+}
+
+func (c *rawConn) Control(f func(uintptr)) error {
+	f(uintptr(c.fd))
+	return nil
+}
+
+func (c *rawConn) Read(f func(uintptr) bool) error {
+	for {
+		if f(uintptr(c.fd)) {
+			return nil
+		}
+
+		_, err := winsock2.Recv(c.fd, nil, 0)
+		if err != nil && err != windows.WSAEMSGSIZE {
+			return err
+		}
+	}
+}
+
+func (c *rawConn) Write(f func(uintptr) bool) error {
+	if f(uintptr(c.fd)) {
+		return nil
+	}
+	return syscall.EWINDOWS
+}
+
+func ctrlNetwork(network string, family int) string {
+	switch network {
+	case "tcp4", "tcp6":
+		return network
+	case "tcp":
+		switch family {
+		case windows.AF_INET:
+			return "tcp4"
+		case windows.AF_INET6:
+			return "tcp6"
+		}
+	}
+	return "tcp6"
+}
+
+func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (TFOConn, error) {
 	var domain int
 	var lsockaddr, rsockaddr windows.Sockaddr
 
@@ -139,18 +185,29 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 	}
 
 	if err := setIPv6Only(fd, domain, v6only); err != nil {
+		windows.Closesocket(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if err := setNoDelay(fd, 1); err != nil {
+		windows.Closesocket(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if err := setTFO(fd); err != nil {
+		windows.Closesocket(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
+	if ctrlFn != nil {
+		if err := ctrlFn(ctrlNetwork(network, domain), raddr.String(), &rawConn{fd: fd}); err != nil {
+			windows.Closesocket(fd)
+			return nil, err
+		}
+	}
+
 	if err := windows.Bind(fd, lsockaddr); err != nil {
+		windows.Closesocket(fd)
 		return nil, wrapSyscallError("bind", err)
 	}
 

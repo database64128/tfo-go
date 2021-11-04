@@ -22,7 +22,7 @@ func SetTFODialer(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN_CONNECT, 1)
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
+func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (TFOConn, error) {
 	var innerErr error
 	d := net.Dialer{
 		LocalAddr: laddr,

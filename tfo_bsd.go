@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -55,7 +56,22 @@ func setLinger(fd int, sec int) error {
 	return unix.SetsockoptLinger(fd, unix.SOL_SOCKET, unix.SO_LINGER, &l)
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
+func ctrlNetwork(network string, family int) string {
+	switch network {
+	case "tcp4", "tcp6":
+		return network
+	case "tcp":
+		switch family {
+		case unix.AF_INET:
+			return "tcp4"
+		case unix.AF_INET6:
+			return "tcp6"
+		}
+	}
+	return "tcp6"
+}
+
+func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (TFOConn, error) {
 	var domain int
 	var lsockaddr, rsockaddr unix.Sockaddr
 
@@ -107,24 +123,40 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 	}
 
 	if err := setIPv6Only(fd, domain, v6only); err != nil {
+		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if err := setNoDelay(fd, 1); err != nil {
+		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if err := SetTFODialer(uintptr(fd)); err != nil {
+		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt", err)
+	}
+
+	f := os.NewFile(uintptr(fd), "")
+
+	if ctrlFn != nil {
+		rawConn, err := f.SyscallConn()
+		if err != nil {
+			unix.Close(fd)
+			return nil, err
+		}
+		if err := ctrlFn(ctrlNetwork(network, domain), raddr.String(), rawConn); err != nil {
+			unix.Close(fd)
+			return nil, err
+		}
 	}
 
 	if laddr != nil {
 		if err := unix.Bind(fd, lsockaddr); err != nil {
+			unix.Close(fd)
 			return nil, wrapSyscallError("bind", err)
 		}
 	}
-
-	f := os.NewFile(uintptr(fd), "")
 
 	return &tfoConn{
 		fd:        fd,

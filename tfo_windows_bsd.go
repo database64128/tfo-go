@@ -212,7 +212,7 @@ func (d *TFODialer) dialSerial(ctx context.Context, network string, laddr *net.T
 			}
 		}
 
-		c, err := dialTFO(network, laddr, &ra)
+		c, err := dialTFO(network, laddr, &ra, d.Control)
 		if err == nil {
 			err = c.SetDeadline(ddl)
 			return c, err
