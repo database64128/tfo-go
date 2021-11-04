@@ -133,7 +133,12 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 		return nil, wrapSyscallError("socket", err)
 	}
 
-	if err := setIPv6Only(fd, domain, 1); err != nil {
+	var v6only int
+	if network == "tcp6" {
+		v6only = 1
+	}
+
+	if err := setIPv6Only(fd, domain, v6only); err != nil {
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
