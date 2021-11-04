@@ -25,6 +25,36 @@ type tfoConn struct {
 	rsockaddr unix.Sockaddr
 }
 
+func setIPv6Only(fd int, family int, ipv6only int) error {
+	if family == unix.AF_INET6 {
+		// Allow both IP versions even if the OS default
+		// is otherwise. Note that some operating systems
+		// never admit this option.
+		unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, ipv6only)
+	}
+	return nil
+}
+
+func setNoDelay(fd int, noDelay int) error {
+	return unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_NODELAY, noDelay)
+}
+
+func setKeepAlive(fd int, keepalive int) error {
+	return unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_KEEPALIVE, keepalive)
+}
+
+func setLinger(fd int, sec int) error {
+	var l unix.Linger
+	if sec >= 0 {
+		l.Onoff = 1
+		l.Linger = int32(sec)
+	} else {
+		l.Onoff = 0
+		l.Linger = 0
+	}
+	return unix.SetsockoptLinger(fd, unix.SOL_SOCKET, unix.SO_LINGER, &l)
+}
+
 func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 	var domain int
 	var lsockaddr, rsockaddr unix.Sockaddr
@@ -69,6 +99,14 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 	fd, err := socket(domain)
 	if err != nil {
 		return nil, wrapSyscallError("socket", err)
+	}
+
+	if err := setIPv6Only(fd, domain, 1); err != nil {
+		return nil, wrapSyscallError("setsockopt", err)
+	}
+
+	if err := setNoDelay(fd, 1); err != nil {
+		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if err := SetTFODialer(uintptr(fd)); err != nil {
@@ -186,6 +224,42 @@ func (c *tfoConn) SetReadDeadline(t time.Time) error {
 func (c *tfoConn) SetWriteDeadline(t time.Time) error {
 	if err := c.f.SetWriteDeadline(t); err != nil {
 		return &net.OpError{Op: "set", Net: c.network, Source: nil, Addr: c.laddr, Err: err}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetNoDelay(noDelay bool) error {
+	var value int
+	if noDelay {
+		value = 1
+	}
+	if err := setNoDelay(c.fd, value); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetKeepAlive(keepalive bool) error {
+	var value int
+	if keepalive {
+		value = 1
+	}
+	if err := setKeepAlive(c.fd, value); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetKeepAlivePeriod(d time.Duration) error {
+	if err := setKeepAlivePeriod(c.fd, d); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetLinger(sec int) error {
+	if err := setLinger(c.fd, sec); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
 	}
 	return nil
 }

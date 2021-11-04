@@ -2,6 +2,7 @@ package tfo
 
 import (
 	"fmt"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -16,6 +17,15 @@ func SetTFODialer(fd uintptr) error {
 
 func setTFO(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN, 1)
+}
+
+func setKeepAlivePeriod(fd int, d time.Duration) error {
+	// The kernel expects seconds so round to next highest second.
+	secs := int(roundDurationUp(d, time.Second))
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, secs); err != nil {
+		return err
+	}
+	return unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPIDLE, secs)
 }
 
 func socket(domain int) (int, error) {

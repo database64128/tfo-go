@@ -20,6 +20,10 @@ type TFOConn interface {
 	io.ReaderFrom
 	CloseRead() error
 	CloseWrite() error
+	SetLinger(sec int) error
+	SetNoDelay(noDelay bool) error
+	SetKeepAlive(keepalive bool) error
+	SetKeepAlivePeriod(d time.Duration) error
 }
 
 type TFOListenConfig struct {
@@ -80,7 +84,7 @@ func (d *TFODialer) DialContext(ctx context.Context, network, address string) (n
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		if !d.DisableTFO {
-			return d.dialTFOContext(ctx, network, address)
+			return d.dialTFOContext(ctx, network, address) // tfo_windows_bsd.go, tfo_notwindowsbsd.go
 		}
 	}
 	return d.Dialer.DialContext(ctx, network, address)

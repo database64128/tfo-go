@@ -6,6 +6,7 @@ import (
 	"os"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/database64128/tfo-go/winsock2"
 	"golang.org/x/sys/windows"
@@ -23,6 +24,50 @@ func SetTFODialer(fd uintptr) error {
 
 func setTFO(fd windows.Handle) error {
 	return windows.SetsockoptInt(fd, windows.IPPROTO_TCP, TCP_FASTOPEN, 1)
+}
+
+func setIPv6Only(fd windows.Handle, family int, ipv6only int) error {
+	if family == windows.AF_INET6 {
+		// Allow both IP versions even if the OS default
+		// is otherwise. Note that some operating systems
+		// never admit this option.
+		windows.SetsockoptInt(fd, windows.IPPROTO_IPV6, windows.IPV6_V6ONLY, ipv6only)
+	}
+	return nil
+}
+
+func setNoDelay(fd windows.Handle, noDelay int) error {
+	return windows.SetsockoptInt(fd, windows.IPPROTO_TCP, windows.TCP_NODELAY, noDelay)
+}
+
+func setKeepAlive(fd windows.Handle, keepalive int) error {
+	return windows.SetsockoptInt(fd, windows.SOL_SOCKET, windows.SO_KEEPALIVE, keepalive)
+}
+
+func setKeepAlivePeriod(fd windows.Handle, d time.Duration) error {
+	// The kernel expects milliseconds so round to next highest
+	// millisecond.
+	msecs := uint32(roundDurationUp(d, time.Millisecond))
+	ka := windows.TCPKeepalive{
+		OnOff:    1,
+		Time:     msecs,
+		Interval: msecs,
+	}
+	ret := uint32(0)
+	size := uint32(unsafe.Sizeof(ka))
+	return windows.WSAIoctl(fd, windows.SIO_KEEPALIVE_VALS, (*byte)(unsafe.Pointer(&ka)), size, nil, 0, &ret, nil, 0)
+}
+
+func setLinger(fd windows.Handle, sec int) error {
+	var l windows.Linger
+	if sec >= 0 {
+		l.Onoff = 1
+		l.Linger = int32(sec)
+	} else {
+		l.Onoff = 0
+		l.Linger = 0
+	}
+	return windows.SetsockoptLinger(fd, windows.SOL_SOCKET, windows.SO_LINGER, &l)
 }
 
 func setUpdateConnectContext(fd windows.Handle) error {
@@ -86,6 +131,14 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
 	fd, err := windows.Socket(domain, windows.SOCK_STREAM, windows.IPPROTO_TCP)
 	if err != nil {
 		return nil, wrapSyscallError("socket", err)
+	}
+
+	if err := setIPv6Only(fd, domain, 1); err != nil {
+		return nil, wrapSyscallError("setsockopt", err)
+	}
+
+	if err := setNoDelay(fd, 1); err != nil {
+		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if err := setTFO(fd); err != nil {
@@ -336,5 +389,41 @@ func (c *tfoConn) SetReadDeadline(t time.Time) error {
 
 func (c *tfoConn) SetWriteDeadline(t time.Time) error {
 	c.writeDeadline = t
+	return nil
+}
+
+func (c *tfoConn) SetNoDelay(noDelay bool) error {
+	var value int
+	if noDelay {
+		value = 1
+	}
+	if err := setNoDelay(c.fd, value); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetKeepAlive(keepalive bool) error {
+	var value int
+	if keepalive {
+		value = 1
+	}
+	if err := setKeepAlive(c.fd, value); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetKeepAlivePeriod(d time.Duration) error {
+	if err := setKeepAlivePeriod(c.fd, d); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("WSAIoctl", err)}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetLinger(sec int) error {
+	if err := setLinger(c.fd, sec); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
+	}
 	return nil
 }

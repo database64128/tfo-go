@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/database64128/tfo-go/bsd"
 	"golang.org/x/sys/unix"
@@ -38,6 +39,15 @@ func (lc *TFOListenConfig) listenTFO(ctx context.Context, network, address strin
 
 func SetTFODialer(fd uintptr) error {
 	return nil
+}
+
+func setKeepAlivePeriod(fd int, d time.Duration) error {
+	// The kernel expects seconds so round to next highest second.
+	secs := int(roundDurationUp(d, time.Second))
+	if err := unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, secs); err != nil {
+		return err
+	}
+	return unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPALIVE, secs)
 }
 
 func socket(domain int) (fd int, err error) {
