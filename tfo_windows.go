@@ -137,12 +137,13 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, stri
 	var domain int
 	var lsockaddr, rsockaddr windows.Sockaddr
 
-	raddrIs4 := raddr.IP.To4() != nil
+	raddr4 := raddr.IP.To4()
+	raddrIs4 := raddr4 != nil
 	if raddrIs4 {
 		domain = windows.AF_INET
 		rsockaddr = &windows.SockaddrInet4{
 			Port: raddr.Port,
-			Addr: *(*[4]byte)(raddr.IP),
+			Addr: *(*[4]byte)(raddr4),
 		}
 	} else {
 		domain = windows.AF_INET6
@@ -153,14 +154,15 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, stri
 	}
 
 	if laddr != nil {
-		laddrIs4 := laddr.IP.To4() != nil
+		laddr4 := laddr.IP.To4()
+		laddrIs4 := laddr4 != nil
 		if laddrIs4 != raddrIs4 {
 			return nil, ErrMismatchedAddressFamily
 		}
 		if laddrIs4 {
 			lsockaddr = &windows.SockaddrInet4{
 				Port: laddr.Port,
-				Addr: *(*[4]byte)(laddr.IP),
+				Addr: *(*[4]byte)(laddr4),
 			}
 		} else {
 			lsockaddr = &windows.SockaddrInet6{

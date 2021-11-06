@@ -190,6 +190,47 @@ func TestClientWriteServerRead(t *testing.T) {
 	<-fromClientErrCh
 }
 
+func TestClientWriteServerReadv4(t *testing.T) {
+	data := []byte{'h', 'e', 'l', 'l', 'o'}
+	t.Log("payload: hello")
+
+	lntcp, err := ListenTCP("tcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lntcp.Close()
+	t.Log("listening on", lntcp.Addr())
+
+	fromClientErrCh := make(chan error)
+	go func() {
+		conn, err := lntcp.Accept()
+		if err != nil {
+			fromClientErrCh <- err
+			return
+		}
+		defer conn.Close()
+		t.Log("accepted", conn.RemoteAddr())
+
+		b := make([]byte, 16)
+		readOnce(conn, b, data, t)
+
+		fromClientErrCh <- err
+	}()
+
+	tc, err := net.DialTCP("tcp", nil, &net.TCPAddr{
+		IP:   net.IPv4(127, 0, 0, 1),
+		Port: lntcp.Addr().(*net.TCPAddr).Port,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tc.Close()
+
+	write(tc, data, t)
+
+	<-fromClientErrCh
+}
+
 func TestClientWriteServerReadWithContext(t *testing.T) {
 	data := []byte{'h', 'e', 'l', 'l', 'o'}
 	t.Log("payload: hello")
