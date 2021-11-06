@@ -247,12 +247,27 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 	if err == windows.ERROR_IO_PENDING {
 		err = windows.WSAGetOverlappedResult(c.fd, &overlapped, &bytesSent, true, &flags)
 	}
+
+	cErr := winsock2.WSACloseEvent(efd)
+
 	if err != nil {
 		err = wrapSyscallError("ConnectEx", err)
 		return
 	}
-	n = int(bytesSent)
+	if cErr != nil {
+		windows.Closesocket(c.fd)
+		err = wrapSyscallError("WSACloseEvent", cErr)
+		return
+	}
+
 	err = setUpdateConnectContext(c.fd)
+	if err != nil {
+		windows.Closesocket(c.fd)
+		err = wrapSyscallError("setsockopt", err)
+		return
+	}
+
+	n = int(bytesSent)
 	return
 }
 
@@ -408,7 +423,7 @@ func (c *tfoConn) Write(b []byte) (int, error) {
 	}
 
 	n, err := c.connect(b)
-	if n > 0 || err == nil { // setUpdateConnectContext could return error.
+	if err == nil {
 		c.connected = true
 	}
 	c.mu.Unlock()

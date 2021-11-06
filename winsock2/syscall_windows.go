@@ -21,6 +21,7 @@ var (
 
 	modws2_32          = windows.NewLazySystemDLL("ws2_32.dll")
 	procWSACreateEvent = modws2_32.NewProc("WSACreateEvent")
+	procWSACloseEvent  = modws2_32.NewProc("WSACloseEvent")
 	procsend           = modws2_32.NewProc("send")
 	procrecv           = modws2_32.NewProc("recv")
 )
@@ -46,6 +47,14 @@ func WSACreateEvent() (windows.Handle, error) {
 		return 0, errnoErr(err)
 	}
 	return windows.Handle(efd), nil
+}
+
+func WSACloseEvent(fd windows.Handle) error {
+	ret, _, err := syscall.Syscall(procWSACloseEvent.Addr(), 1, uintptr(fd), 0, 0)
+	if ret == 0 {
+		return errnoErr(err)
+	}
+	return nil
 }
 
 func Send(s windows.Handle, buf []byte, flags int32) (n int32, err error) {
