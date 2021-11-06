@@ -18,7 +18,7 @@ const (
 
 var errMissingAddress = errors.New("missing address")
 
-func (d *TFODialer) dialTFOContext(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *Dialer) dialTFOContext(ctx context.Context, network, address string) (net.Conn, error) {
 	if ctx == nil {
 		panic("nil context")
 	}
@@ -84,7 +84,7 @@ func (d *TFODialer) dialTFOContext(ctx context.Context, network, address string)
 		primaries = addrs
 	}
 
-	var c TFOConn
+	var c Conn
 	if len(fallbacks) > 0 {
 		c, err = d.dialParallel(ctx, network, laddr, primaries, fallbacks)
 	} else {
@@ -109,7 +109,7 @@ func (d *TFODialer) dialTFOContext(ctx context.Context, network, address string)
 // head start. It returns the first established connection and
 // closes the others. Otherwise it returns an error from the first
 // primary address.
-func (d *TFODialer) dialParallel(ctx context.Context, network string, laddr *net.TCPAddr, primaries, fallbacks []net.TCPAddr) (TFOConn, error) {
+func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TCPAddr, primaries, fallbacks []net.TCPAddr) (Conn, error) {
 	if len(fallbacks) == 0 {
 		return d.dialSerial(ctx, network, laddr, primaries)
 	}
@@ -118,7 +118,7 @@ func (d *TFODialer) dialParallel(ctx context.Context, network string, laddr *net
 	defer close(returned)
 
 	type dialResult struct {
-		TFOConn
+		Conn
 		error
 		primary bool
 		done    bool
@@ -132,7 +132,7 @@ func (d *TFODialer) dialParallel(ctx context.Context, network string, laddr *net
 		}
 		c, err := d.dialSerial(ctx, network, laddr, ras)
 		select {
-		case results <- dialResult{TFOConn: c, error: err, primary: primary, done: true}:
+		case results <- dialResult{Conn: c, error: err, primary: primary, done: true}:
 		case <-returned:
 			if c != nil {
 				c.Close()
@@ -164,7 +164,7 @@ func (d *TFODialer) dialParallel(ctx context.Context, network string, laddr *net
 
 		case res := <-results:
 			if res.error == nil {
-				return res.TFOConn, nil
+				return res.Conn, nil
 			}
 			if res.primary {
 				primary = res
@@ -187,7 +187,7 @@ func (d *TFODialer) dialParallel(ctx context.Context, network string, laddr *net
 
 // dialSerial connects to a list of addresses in sequence, returning
 // either the first successful connection, or the first error.
-func (d *TFODialer) dialSerial(ctx context.Context, network string, laddr *net.TCPAddr, ras []net.TCPAddr) (TFOConn, error) {
+func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPAddr, ras []net.TCPAddr) (Conn, error) {
 	var firstErr error // The error from the first address is most relevant.
 
 	for i, ra := range ras {
@@ -267,7 +267,7 @@ func minNonzeroTime(a, b time.Time) time.Time {
 //   - d.Deadline
 //   - the context's deadline
 // Or zero, if none of Timeout, Deadline, or context's deadline is set.
-func (d *TFODialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {
+func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {
 	if d.Timeout != 0 { // including negative, for historical reasons
 		earliest = now.Add(d.Timeout)
 	}

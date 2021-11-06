@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-func (lc *TFOListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
+func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
 	var innerErr error
 	userCtrlFn := lc.ListenConfig.Control
 	lc.ListenConfig.Control = func(network, address string, c syscall.RawConn) error {

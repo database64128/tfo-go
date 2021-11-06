@@ -15,7 +15,7 @@ var (
 	ErrMismatchedAddressFamily = errors.New("laddr and raddr are not the same address family")
 )
 
-type TFOConn interface {
+type Conn interface {
 	net.Conn
 	io.ReaderFrom
 	CloseRead() error
@@ -26,7 +26,7 @@ type TFOConn interface {
 	SetKeepAlivePeriod(d time.Duration) error
 }
 
-type TFOListenConfig struct {
+type ListenConfig struct {
 	net.ListenConfig
 
 	// DisableTFO controls whether TCP Fast Open is disabled on this instance of TFOListenConfig.
@@ -35,7 +35,7 @@ type TFOListenConfig struct {
 	DisableTFO bool
 }
 
-func (lc *TFOListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
+func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		if !lc.DisableTFO {
@@ -46,7 +46,7 @@ func (lc *TFOListenConfig) Listen(ctx context.Context, network, address string) 
 }
 
 func ListenContext(ctx context.Context, network, address string) (net.Listener, error) {
-	var lc TFOListenConfig
+	var lc ListenConfig
 	return lc.Listen(ctx, network, address)
 }
 
@@ -63,7 +63,7 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 	if laddr == nil {
 		laddr = &net.TCPAddr{}
 	}
-	var lc TFOListenConfig
+	var lc ListenConfig
 	ln, err := lc.listenTFO(context.Background(), network, laddr.String()) // tfo_darwin.go, tfo_notdarwin.go
 	if err != nil && err != ErrPlatformUnsupported {
 		return nil, err
@@ -71,7 +71,7 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 	return ln.(*net.TCPListener), err
 }
 
-type TFODialer struct {
+type Dialer struct {
 	net.Dialer
 
 	// DisableTFO controls whether TCP Fast Open is disabled on this instance of TFODialer.
@@ -80,7 +80,7 @@ type TFODialer struct {
 	DisableTFO bool
 }
 
-func (d *TFODialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		if !d.DisableTFO {
@@ -90,22 +90,22 @@ func (d *TFODialer) DialContext(ctx context.Context, network, address string) (n
 	return d.Dialer.DialContext(ctx, network, address)
 }
 
-func (d *TFODialer) Dial(network, address string) (net.Conn, error) {
+func (d *Dialer) Dial(network, address string) (net.Conn, error) {
 	return d.DialContext(context.Background(), network, address)
 }
 
 func Dial(network, address string) (net.Conn, error) {
-	var d TFODialer
+	var d Dialer
 	return d.DialContext(context.Background(), network, address)
 }
 
 func DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
-	var d TFODialer
+	var d Dialer
 	d.Timeout = timeout
 	return d.DialContext(context.Background(), network, address)
 }
 
-func DialTCP(network string, laddr, raddr *net.TCPAddr) (TFOConn, error) {
+func DialTCP(network string, laddr, raddr *net.TCPAddr) (Conn, error) {
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 		return dialTFO(network, laddr, raddr, nil) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go

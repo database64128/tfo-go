@@ -8,7 +8,7 @@ import (
 
 func TestTFOListenConfigCtrlFn(t *testing.T) {
 	var success bool
-	lc := TFOListenConfig{}
+	lc := ListenConfig{}
 	lc.Control = func(network, address string, c syscall.RawConn) error {
 		success = true
 		return nil
@@ -25,7 +25,7 @@ func TestTFOListenConfigCtrlFn(t *testing.T) {
 
 func TestTFODialerCtrlFn(t *testing.T) {
 	var success bool
-	d := TFODialer{}
+	d := Dialer{}
 	d.Control = func(network, address string, c syscall.RawConn) error {
 		success = true
 		return nil

@@ -14,7 +14,7 @@ func SetTFOListener(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN, 1)
 }
 
-func (lc *TFOListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
+func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
 	ln, err := lc.ListenConfig.Listen(ctx, network, address)
 	if err != nil {
 		return nil, err

@@ -71,7 +71,7 @@ func ctrlNetwork(network string, family int) string {
 	return "tcp6"
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (TFOConn, error) {
+func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (Conn, error) {
 	var domain int
 	var lsockaddr, rsockaddr unix.Sockaddr
 

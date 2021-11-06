@@ -235,7 +235,7 @@ func TestClientWriteServerReadWithContext(t *testing.T) {
 	data := []byte{'h', 'e', 'l', 'l', 'o'}
 	t.Log("payload: hello")
 
-	var lc TFOListenConfig
+	var lc ListenConfig
 	ln, err := lc.Listen(context.Background(), "tcp", "")
 	if err != nil {
 		t.Fatal(err)
@@ -259,7 +259,7 @@ func TestClientWriteServerReadWithContext(t *testing.T) {
 		fromClientErrCh <- err
 	}()
 
-	var dialer TFODialer
+	var dialer Dialer
 	c, err := dialer.Dial("tcp", fmt.Sprintf("localhost:%d", ln.Addr().(*net.TCPAddr).Port))
 	if err != nil {
 		t.Fatal(err)

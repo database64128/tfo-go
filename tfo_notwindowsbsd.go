@@ -9,7 +9,7 @@ import (
 	"syscall"
 )
 
-func (d *TFODialer) dialTFOContext(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *Dialer) dialTFOContext(ctx context.Context, network, address string) (net.Conn, error) {
 	var innerErr error
 	userCtrlFn := d.Dialer.Control
 	d.Dialer.Control = func(network, address string, c syscall.RawConn) error {
