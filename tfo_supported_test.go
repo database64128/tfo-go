@@ -5,7 +5,9 @@ package tfo
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -184,6 +186,46 @@ func TestClientWriteServerRead(t *testing.T) {
 	defer tc.Close()
 
 	write(tc, data, t)
+
+	<-fromClientErrCh
+}
+
+func TestClientWriteServerReadWithContext(t *testing.T) {
+	data := []byte{'h', 'e', 'l', 'l', 'o'}
+	t.Log("payload: hello")
+
+	var lc TFOListenConfig
+	ln, err := lc.Listen(context.Background(), "tcp", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	t.Log("listening on", ln.Addr())
+
+	fromClientErrCh := make(chan error)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			fromClientErrCh <- err
+			return
+		}
+		defer conn.Close()
+		t.Log("accepted", conn.RemoteAddr())
+
+		b := make([]byte, 16)
+		readOnce(conn, b, data, t)
+
+		fromClientErrCh <- err
+	}()
+
+	var dialer TFODialer
+	c, err := dialer.Dial("tcp", fmt.Sprintf("localhost:%d", ln.Addr().(*net.TCPAddr).Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	write(c, data, t)
 
 	<-fromClientErrCh
 }
