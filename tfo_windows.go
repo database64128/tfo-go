@@ -273,6 +273,9 @@ func (c *tfoConn) Read(b []byte) (int, error) {
 	c.mu.Unlock()
 
 	n, err := winsock2.Recv(c.fd, b, 0)
+	if n == 0 && err == nil {
+		return 0, io.EOF
+	}
 	return int(n), wrapSyscallError("recv", err)
 }
 
