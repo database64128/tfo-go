@@ -177,12 +177,17 @@ func (c *tfoConn) Read(b []byte) (int, error) {
 		_, err := c.connect(nil)
 		if err != nil {
 			c.mu.Unlock()
-			return 0, err
+			return 0, &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 		}
 		c.connected = true
 	}
 	c.mu.Unlock()
-	return c.f.Read(b)
+
+	n, err := c.f.Read(b)
+	if err != nil {
+		err = &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+	}
+	return n, err
 }
 
 // ReadFrom utilizes the underlying file's ReadFrom method to minimize copies and allocations.
@@ -194,27 +199,37 @@ func (c *tfoConn) ReadFrom(r io.Reader) (int64, error) {
 		_, err := c.connect(nil)
 		if err != nil {
 			c.mu.Unlock()
-			return 0, err
+			return 0, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 		}
 		c.connected = true
 	}
 	c.mu.Unlock()
-	return c.f.ReadFrom(r)
+	n, err := c.f.ReadFrom(r)
+	if err != nil {
+		err = &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+	}
+	return n, err
 }
 
 func (c *tfoConn) Write(b []byte) (int, error) {
 	c.mu.Lock()
 	if c.connected {
 		c.mu.Unlock()
-		return c.f.Write(b)
+		n, err := c.f.Write(b)
+		if err != nil {
+			err = &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+		}
+		return n, err
 	}
 
 	n, err := c.connect(b)
-	if err == nil {
-		c.connected = true
+	if err != nil {
+		c.mu.Unlock()
+		return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 	}
+	c.connected = true
 	c.mu.Unlock()
-	return n, err
+	return n, nil
 }
 
 func (c *tfoConn) Close() error {

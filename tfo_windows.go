@@ -281,7 +281,7 @@ func (c *tfoConn) Read(b []byte) (int, error) {
 		_, err := c.connect(nil)
 		if err != nil {
 			c.mu.Unlock()
-			return 0, err
+			return 0, &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 		}
 		c.connected = true
 	}
@@ -291,7 +291,10 @@ func (c *tfoConn) Read(b []byte) (int, error) {
 	if n == 0 && err == nil {
 		return 0, io.EOF
 	}
-	return int(n), wrapSyscallError("recv", err)
+	if err != nil {
+		return 0, &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("recv", err)}
+	}
+	return int(n), nil
 }
 
 // ReadFrom utilizes the underlying file's ReadFrom method to minimize copies and allocations.
@@ -307,16 +310,25 @@ func (c *tfoConn) ReadFrom(r io.Reader) (int64, error) {
 		_, err := c.connect(nil)
 		if err != nil {
 			c.mu.Unlock()
-			return 0, err
+			return 0, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 		}
 		c.connected = true
 	}
 	c.mu.Unlock()
 
-	if n, handled, err := c.sendFile(r); handled {
-		return n, wrapSyscallError("transmitfile", err)
+	n, handled, err := c.sendFile(r)
+	if handled {
+		if err != nil {
+			return n, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+		}
+		return n, nil
 	}
-	return genericReadFrom(c, r)
+
+	n, err = genericReadFrom(c, r)
+	if err != nil {
+		return n, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+	}
+	return n, nil
 }
 
 func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error) {
@@ -340,17 +352,19 @@ func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error)
 	// TODO(brainman): skip calling windows.Seek if OS allows it
 	curpos, err := windows.Seek(fh, 0, io.SeekCurrent)
 	if err != nil {
-		return 0, false, err
+		return 0, false, wrapSyscallError("seek", err)
 	}
 
 	if n <= 0 { // We don't know the size of the file so infer it.
 		// Find the number of bytes offset from curpos until the end of the file.
 		n, err = windows.Seek(fh, -curpos, io.SeekEnd)
 		if err != nil {
+			err = wrapSyscallError("seek", err)
 			return
 		}
 		// Now seek back to the original position.
 		if _, err = windows.Seek(fh, curpos, io.SeekStart); err != nil {
+			err = wrapSyscallError("seek", err)
 			return
 		}
 	}
@@ -359,6 +373,13 @@ func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error)
 	// 2,147,483,646 bytes: the maximum value for a 32-bit integer minus 1.
 	// See https://docs.microsoft.com/en-us/windows/win32/api/mswsock/nf-mswsock-transmitfile
 	const maxChunkSizePerCall = int64(0x7fffffff - 1)
+
+	efd, err := winsock2.WSACreateEvent()
+	if err != nil {
+		err = wrapSyscallError("WSACreateEvent", err)
+		return
+	}
+	overlapped.HEvent = efd
 
 	for n > 0 {
 		var bytesSent uint32
@@ -376,7 +397,8 @@ func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error)
 			err = windows.WSAGetOverlappedResult(c.fd, &overlapped, &bytesSent, true, &flags)
 		}
 		if err != nil {
-			return written, true, err
+			winsock2.WSACloseEvent(efd)
+			return written, true, wrapSyscallError("TransmitFile", err)
 		}
 
 		curpos += int64(bytesSent)
@@ -385,7 +407,8 @@ func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error)
 		// file position after TransmitFile completes.
 		// So just use Seek to set file position.
 		if _, err = windows.Seek(fh, curpos, io.SeekStart); err != nil {
-			return written, true, err
+			winsock2.WSACloseEvent(efd)
+			return written, true, wrapSyscallError("seek", err)
 		}
 
 		n -= int64(bytesSent)
@@ -395,6 +418,11 @@ func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error)
 	// If any byte was copied, regardless of any error
 	// encountered mid-way, handled must be set to true.
 	handled = written > 0
+
+	err = winsock2.WSACloseEvent(efd)
+	if err != nil {
+		err = wrapSyscallError("WSACreateEvent", err)
+	}
 
 	return
 }
@@ -419,15 +447,20 @@ func (c *tfoConn) Write(b []byte) (int, error) {
 	if c.connected {
 		c.mu.Unlock()
 		n, err := winsock2.Send(c.fd, b, 0)
-		return int(n), wrapSyscallError("send", err)
+		if err != nil {
+			return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("send", err)}
+		}
+		return int(n), nil
 	}
 
 	n, err := c.connect(b)
-	if err == nil {
-		c.connected = true
+	if err != nil {
+		c.mu.Unlock()
+		return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 	}
+	c.connected = true
 	c.mu.Unlock()
-	return n, err
+	return n, nil
 }
 
 func (c *tfoConn) Close() error {
