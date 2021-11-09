@@ -2,6 +2,7 @@ package tfo
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -51,6 +52,24 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 		if fds[0].Revents&unix.POLLWRNORM != unix.POLLWRNORM {
 			return 0, fmt.Errorf("unexpected revents from poll(): %d", fds[0].Revents)
 		}
+
+		c.lsockaddr, err = unix.Getsockname(c.fd)
+		if err != nil {
+			return 0, wrapSyscallError("getsockname", err)
+		}
+		switch lsa := c.lsockaddr.(type) {
+		case *unix.SockaddrInet4:
+			c.laddr = &net.TCPAddr{
+				IP:   lsa.Addr[:],
+				Port: lsa.Port,
+			}
+		case *unix.SockaddrInet6: //TODO: convert zone id.
+			c.laddr = &net.TCPAddr{
+				IP:   lsa.Addr[:],
+				Port: lsa.Port,
+			}
+		}
+
 		return c.f.Write(b)
 	}
 	err = wrapSyscallError("sendmsg", err)

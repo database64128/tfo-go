@@ -255,16 +255,32 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 		return
 	}
 	if cErr != nil {
-		windows.Closesocket(c.fd)
 		err = wrapSyscallError("WSACloseEvent", cErr)
 		return
 	}
 
 	err = setUpdateConnectContext(c.fd)
 	if err != nil {
-		windows.Closesocket(c.fd)
 		err = wrapSyscallError("setsockopt", err)
 		return
+	}
+
+	c.lsockaddr, err = windows.Getsockname(c.fd)
+	if err != nil {
+		err = wrapSyscallError("getsockname", err)
+		return
+	}
+	switch lsa := c.lsockaddr.(type) {
+	case *windows.SockaddrInet4:
+		c.laddr = &net.TCPAddr{
+			IP:   lsa.Addr[:],
+			Port: lsa.Port,
+		}
+	case *windows.SockaddrInet6: //TODO: convert zone id.
+		c.laddr = &net.TCPAddr{
+			IP:   lsa.Addr[:],
+			Port: lsa.Port,
+		}
 	}
 
 	n = int(bytesSent)
