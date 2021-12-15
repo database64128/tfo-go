@@ -42,10 +42,21 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 		if err != nil {
 			return
 		}
+	}
 
-		return c.f.Write(b)
+	err = c.getSocketError("sendmsg")
+	if err != nil {
+		return
 	}
 
 	err = c.getLocalAddr()
+	if err != nil {
+		return
+	}
+
+	if n == 0 && len(b) > 0 {
+		return c.f.Write(b)
+	}
+
 	return
 }

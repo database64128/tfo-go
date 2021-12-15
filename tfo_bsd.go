@@ -216,6 +216,20 @@ func (c *tfoConn) getLocalAddr() (err error) {
 	return
 }
 
+func (c *tfoConn) getSocketError(call string) error {
+	nerr, err := unix.GetsockoptInt(c.fd, unix.SOL_SOCKET, unix.SO_ERROR)
+	if err != nil {
+		return wrapSyscallError("getsockopt", err)
+	}
+
+	switch err := syscall.Errno(nerr); err {
+	case unix.EINPROGRESS, unix.EALREADY, unix.EINTR, unix.EISCONN, syscall.Errno(0):
+		return nil
+	default:
+		return os.NewSyscallError(call, err)
+	}
+}
+
 func (c *tfoConn) Read(b []byte) (int, error) {
 	c.mu.Lock()
 	if !c.connected {

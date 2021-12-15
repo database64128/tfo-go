@@ -76,6 +76,11 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 		return
 	}
 
+	err = c.getSocketError("connectx")
+	if err != nil {
+		return
+	}
+
 	err = c.getLocalAddr()
 	return
 }
