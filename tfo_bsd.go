@@ -4,6 +4,7 @@
 package tfo
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -169,6 +170,50 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, stri
 		lsockaddr: lsockaddr,
 		rsockaddr: rsockaddr,
 	}, err
+}
+
+func (c *tfoConn) pollWriteReady() error {
+	fds := []unix.PollFd{
+		{
+			Fd:     int32(c.fd),
+			Events: unix.POLLWRNORM,
+		},
+	}
+
+	ret, err := unix.Poll(fds, -1)
+	if err != nil {
+		return wrapSyscallError("poll", err)
+	}
+	if ret != 1 {
+		return fmt.Errorf("unexpected return value from poll(): %d", ret)
+	}
+	if fds[0].Revents&unix.POLLWRNORM != unix.POLLWRNORM {
+		return fmt.Errorf("unexpected revents from poll(): %d", fds[0].Revents)
+	}
+
+	return nil
+}
+
+func (c *tfoConn) getLocalAddr() (err error) {
+	c.lsockaddr, err = unix.Getsockname(c.fd)
+	if err != nil {
+		err = wrapSyscallError("getsockname", err)
+	}
+
+	switch lsa := c.lsockaddr.(type) {
+	case *unix.SockaddrInet4:
+		c.laddr = &net.TCPAddr{
+			IP:   lsa.Addr[:],
+			Port: lsa.Port,
+		}
+	case *unix.SockaddrInet6: //TODO: convert zone id.
+		c.laddr = &net.TCPAddr{
+			IP:   lsa.Addr[:],
+			Port: lsa.Port,
+		}
+	}
+
+	return
 }
 
 func (c *tfoConn) Read(b []byte) (int, error) {

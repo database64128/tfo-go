@@ -1,8 +1,6 @@
 package tfo
 
 import (
-	"fmt"
-	"net"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -35,43 +33,19 @@ func socket(domain int) (int, error) {
 
 func (c *tfoConn) connect(b []byte) (n int, err error) {
 	n, err = unix.SendmsgN(c.fd, b, nil, c.rsockaddr, 0)
+	if err != nil && err != unix.EINPROGRESS {
+		err = wrapSyscallError("sendmsg", err)
+		return
+	}
 	if err == unix.EINPROGRESS { // n == 0
-		fds := []unix.PollFd{
-			{
-				Fd:     int32(c.fd),
-				Events: unix.POLLWRNORM,
-			},
-		}
-		ret, err := unix.Poll(fds, 0)
+		err = c.pollWriteReady()
 		if err != nil {
-			return 0, wrapSyscallError("poll", err)
-		}
-		if ret != 1 {
-			return 0, fmt.Errorf("unexpected return value from poll(): %d", ret)
-		}
-		if fds[0].Revents&unix.POLLWRNORM != unix.POLLWRNORM {
-			return 0, fmt.Errorf("unexpected revents from poll(): %d", fds[0].Revents)
-		}
-
-		c.lsockaddr, err = unix.Getsockname(c.fd)
-		if err != nil {
-			return 0, wrapSyscallError("getsockname", err)
-		}
-		switch lsa := c.lsockaddr.(type) {
-		case *unix.SockaddrInet4:
-			c.laddr = &net.TCPAddr{
-				IP:   lsa.Addr[:],
-				Port: lsa.Port,
-			}
-		case *unix.SockaddrInet6: //TODO: convert zone id.
-			c.laddr = &net.TCPAddr{
-				IP:   lsa.Addr[:],
-				Port: lsa.Port,
-			}
+			return
 		}
 
 		return c.f.Write(b)
 	}
-	err = wrapSyscallError("sendmsg", err)
+
+	err = c.getLocalAddr()
 	return
 }

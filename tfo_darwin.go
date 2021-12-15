@@ -2,7 +2,6 @@ package tfo
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"time"
 
@@ -71,39 +70,12 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 		err = wrapSyscallError("connectx", err)
 		return
 	}
-	fds := []unix.PollFd{
-		{
-			Fd:     int32(c.fd),
-			Events: unix.POLLWRNORM,
-		},
-	}
-	ret, err := unix.Poll(fds, -1)
+
+	err = c.pollWriteReady()
 	if err != nil {
-		return 0, wrapSyscallError("poll", err)
-	}
-	if ret != 1 {
-		return 0, fmt.Errorf("unexpected return value from poll(): %d", ret)
-	}
-	if fds[0].Revents&unix.POLLWRNORM != unix.POLLWRNORM {
-		return 0, fmt.Errorf("unexpected revents from poll(): %d", fds[0].Revents)
+		return
 	}
 
-	c.lsockaddr, err = unix.Getsockname(c.fd)
-	if err != nil {
-		err = wrapSyscallError("getsockname", err)
-	}
-	switch lsa := c.lsockaddr.(type) {
-	case *unix.SockaddrInet4:
-		c.laddr = &net.TCPAddr{
-			IP:   lsa.Addr[:],
-			Port: lsa.Port,
-		}
-	case *unix.SockaddrInet6: //TODO: convert zone id.
-		c.laddr = &net.TCPAddr{
-			IP:   lsa.Addr[:],
-			Port: lsa.Port,
-		}
-	}
-
+	err = c.getLocalAddr()
 	return
 }
