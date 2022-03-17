@@ -1,5 +1,4 @@
 //go:build !darwin && !freebsd && !linux && !windows
-// +build !darwin,!freebsd,!linux,!windows
 
 package tfo
 

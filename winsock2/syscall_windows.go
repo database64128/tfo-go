@@ -42,7 +42,7 @@ func errnoErr(e syscall.Errno) error {
 }
 
 func WSACreateEvent() (windows.Handle, error) {
-	efd, _, err := syscall.Syscall(procWSACreateEvent.Addr(), 0, 0, 0, 0)
+	efd, _, err := syscall.SyscallN(procWSACreateEvent.Addr())
 	if efd == 0 {
 		return 0, errnoErr(err)
 	}
@@ -50,7 +50,7 @@ func WSACreateEvent() (windows.Handle, error) {
 }
 
 func WSACloseEvent(fd windows.Handle) error {
-	ret, _, err := syscall.Syscall(procWSACloseEvent.Addr(), 1, uintptr(fd), 0, 0)
+	ret, _, err := syscall.SyscallN(procWSACloseEvent.Addr(), uintptr(fd))
 	if ret == 0 {
 		return errnoErr(err)
 	}
@@ -58,7 +58,7 @@ func WSACloseEvent(fd windows.Handle) error {
 }
 
 func Send(s windows.Handle, buf []byte, flags int32) (n int32, err error) {
-	r1, _, e1 := syscall.Syscall6(procsend.Addr(), 4, uintptr(s), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(flags), 0, 0)
+	r1, _, e1 := syscall.SyscallN(procsend.Addr(), uintptr(s), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(flags))
 	if r1 == socket_error {
 		err = errnoErr(e1)
 		return
@@ -68,7 +68,7 @@ func Send(s windows.Handle, buf []byte, flags int32) (n int32, err error) {
 }
 
 func Recv(s windows.Handle, buf []byte, flags int32) (n int32, err error) {
-	r1, _, e1 := syscall.Syscall6(procrecv.Addr(), 4, uintptr(s), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(flags), 0, 0)
+	r1, _, e1 := syscall.SyscallN(procrecv.Addr(), uintptr(s), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), uintptr(flags))
 	if r1 == socket_error {
 		err = errnoErr(e1)
 		return
