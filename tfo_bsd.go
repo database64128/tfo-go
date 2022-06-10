@@ -269,25 +269,28 @@ func (c *tfoConn) ReadFrom(r io.Reader) (int64, error) {
 	return n, err
 }
 
-func (c *tfoConn) Write(b []byte) (int, error) {
+func (c *tfoConn) Write(b []byte) (n int, err error) {
 	c.mu.Lock()
-	if c.connected {
-		c.mu.Unlock()
-		n, err := c.f.Write(b)
+	if !c.connected {
+		n, err = c.connect(b)
 		if err != nil {
-			err = &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+			c.mu.Unlock()
+			return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 		}
-		return n, err
+		c.connected = true
+	}
+	c.mu.Unlock()
+
+	if n == len(b) {
+		return
 	}
 
-	n, err := c.connect(b)
+	nn, err := c.f.Write(b[n:])
 	if err != nil {
-		c.mu.Unlock()
-		return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+		err = &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 	}
-	c.connected = true
-	c.mu.Unlock()
-	return n, nil
+	n += nn
+	return
 }
 
 func (c *tfoConn) Close() error {

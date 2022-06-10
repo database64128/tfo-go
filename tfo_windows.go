@@ -454,28 +454,30 @@ func genericReadFrom(w io.Writer, r io.Reader) (n int64, err error) {
 	return io.Copy(writerOnly{w}, r)
 }
 
-func (c *tfoConn) Write(b []byte) (int, error) {
+func (c *tfoConn) Write(b []byte) (n int, err error) {
 	if !c.writeDeadline.IsZero() && c.writeDeadline.Before(time.Now()) {
 		return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: os.ErrDeadlineExceeded}
 	}
 
 	c.mu.Lock()
-	if c.connected {
-		c.mu.Unlock()
-		n, err := winsock2.Send(c.fd, b, 0)
+	if !c.connected {
+		n, err = c.connect(b)
 		if err != nil {
-			return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("send", err)}
+			c.mu.Unlock()
+			return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 		}
-		return int(n), nil
+		c.connected = true
+	}
+	c.mu.Unlock()
+
+	for n < len(b) {
+		ni32, err := winsock2.Send(c.fd, b[n:], 0)
+		if err != nil {
+			return n, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("send", err)}
+		}
+		n += int(ni32)
 	}
 
-	n, err := c.connect(b)
-	if err != nil {
-		c.mu.Unlock()
-		return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
-	}
-	c.connected = true
-	c.mu.Unlock()
 	return n, nil
 }
 
