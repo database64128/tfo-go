@@ -14,6 +14,14 @@ import (
 	"time"
 )
 
+var (
+	hello              = []byte{'h', 'e', 'l', 'l', 'o'}
+	world              = []byte{'w', 'o', 'r', 'l', 'd'}
+	helloworld         = []byte{'h', 'e', 'l', 'l', 'o', 'w', 'o', 'r', 'l', 'd'}
+	worldhello         = []byte{'w', 'o', 'r', 'l', 'd', 'h', 'e', 'l', 'l', 'o'}
+	helloWorldSentence = []byte{'h', 'e', 'l', 'l', 'o', ',', ' ', 'w', 'o', 'r', 'l', 'd', '!', '\n'}
+)
+
 func TestListen(t *testing.T) {
 	ln, err := Listen("tcp", "")
 	if err != nil {
@@ -63,56 +71,32 @@ func TestDialTCP(t *testing.T) {
 
 func write(w io.Writer, data []byte, t *testing.T) {
 	dataLen := len(data)
-	bytesWritten := 0
-	writeBuf := data
-	for len(writeBuf) > 0 {
-		n, err := w.Write(writeBuf)
-		bytesWritten += n
-		if err != nil {
-			t.Error(err)
-			break
-		}
-		writeBuf = writeBuf[n:]
+	n, err := w.Write(data)
+	if err != nil {
+		t.Error(err)
+		return
 	}
-	if bytesWritten != dataLen {
-		t.Errorf("written %d bytes, should have written %d bytes", bytesWritten, dataLen)
+	if n != dataLen {
+		t.Errorf("written %d bytes, should have written %d bytes", n, dataLen)
 	}
 }
 
-func writeOneByteAtATime(w io.Writer, data []byte, t *testing.T) {
-	dataLen := len(data)
-	bytesWritten := 0
-	writeBuf := data
-	for len(writeBuf) > 0 {
-		n, err := w.Write(writeBuf[:1])
-		bytesWritten += n
-		if err != nil {
-			t.Error(err)
-			break
-		}
-		writeBuf = writeBuf[n:]
-	}
-	if bytesWritten != dataLen {
-		t.Errorf("written %d bytes, should have written %d bytes", bytesWritten, dataLen)
-	}
-}
-
-func readOnce(r io.Reader, b []byte, expectedData []byte, t *testing.T) {
-	dataLen := len(expectedData)
-	n, err := r.Read(b)
+func writeWithReadFrom(w io.ReaderFrom, data []byte, t *testing.T) {
+	r := bytes.NewReader(data)
+	n, err := w.ReadFrom(r)
 	if err != nil {
 		t.Error(err)
 	}
-	if n != dataLen {
-		t.Errorf("read %d bytes at once, expected %d bytes", n, dataLen)
-	}
-	if !bytes.Equal(expectedData, b[:n]) {
-		t.Errorf("read data does not equal original data")
+	bytesWritten := int(n)
+	dataLen := len(data)
+	if bytesWritten != dataLen {
+		t.Errorf("written %d bytes, should have written %d bytes", bytesWritten, dataLen)
 	}
 }
 
-func readExactlyOneByte(r io.Reader, b []byte, expectedByte byte, t *testing.T) {
-	n, err := r.Read(b[:1])
+func readExactlyOneByte(r io.Reader, expectedByte byte, t *testing.T) {
+	b := make([]byte, 1)
+	n, err := r.Read(b)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,138 +108,45 @@ func readExactlyOneByte(r io.Reader, b []byte, expectedByte byte, t *testing.T) 
 	}
 }
 
-func readUntilEOF(r io.Reader, b []byte, expectedData []byte, t *testing.T) {
-	dataLen := len(expectedData)
-	bytesRead := 0
-	readBuf := b
-	for {
-		n, err := r.Read(readBuf)
-		bytesRead += n
-		if err != nil && err != io.EOF {
-			t.Error(err)
-			break
-		}
-		if n == 0 || err == io.EOF {
-			break
-		}
-		readBuf = readBuf[n:]
+func readUntilEOF(r io.Reader, expectedData []byte, t *testing.T) {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Error(err)
+		return
 	}
-	if bytesRead != dataLen {
-		t.Errorf("read %d bytes at once, expected %d bytes", bytesRead, dataLen)
-	}
-	if !bytes.Equal(expectedData, b[:bytesRead]) {
-		t.Errorf("read data does not equal original data")
+	if !bytes.Equal(b, expectedData) {
+		t.Errorf("read data %v does not equal original data %v", b, expectedData)
 	}
 }
 
-func TestClientWriteServerRead(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
-
-	lntcp, err := ListenTCP("tcp", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lntcp.Close()
-	t.Log("listening on", lntcp.Addr())
-
-	fromClientErrCh := make(chan error)
-	go func() {
-		conn, err := lntcp.Accept()
-		if err != nil {
-			fromClientErrCh <- err
-			return
-		}
-		defer conn.Close()
-		t.Log("accepted", conn.RemoteAddr())
-
-		b := make([]byte, 16)
-		readOnce(conn, b, data, t)
-
-		fromClientErrCh <- err
-	}()
-
-	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
-		IP:   net.IPv6loopback,
-		Port: lntcp.Addr().(*net.TCPAddr).Port,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tc.Close()
-
-	write(tc, data, t)
-
-	<-fromClientErrCh
-}
-
-func TestClientWriteServerReadv4(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
-
-	lntcp, err := ListenTCP("tcp", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lntcp.Close()
-	t.Log("listening on", lntcp.Addr())
-
-	fromClientErrCh := make(chan error)
-	go func() {
-		conn, err := lntcp.Accept()
-		if err != nil {
-			fromClientErrCh <- err
-			return
-		}
-		defer conn.Close()
-		t.Log("accepted", conn.RemoteAddr())
-
-		b := make([]byte, 16)
-		readOnce(conn, b, data, t)
-
-		fromClientErrCh <- err
-	}()
-
-	tc, err := net.DialTCP("tcp", nil, &net.TCPAddr{
-		IP:   net.IPv4(127, 0, 0, 1),
-		Port: lntcp.Addr().(*net.TCPAddr).Port,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tc.Close()
-
-	write(tc, data, t)
-
-	<-fromClientErrCh
-}
-
-func TestClientWriteServerReadWithContext(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
+func TestClientWriteReadServerReadWriteAddress(t *testing.T) {
+	t.Logf("c->s payload: %v", helloworld)
+	t.Logf("s->c payload: %v", worldhello)
 
 	var lc ListenConfig
 	ln, err := lc.Listen(context.Background(), "tcp", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
-	t.Log("listening on", ln.Addr())
+	lntcp := ln.(*net.TCPListener)
+	defer lntcp.Close()
+	t.Log("listening on", lntcp.Addr())
 
-	fromClientErrCh := make(chan error)
+	ctrlCh := make(chan struct{})
 	go func() {
-		conn, err := ln.Accept()
+		conn, err := lntcp.AcceptTCP()
 		if err != nil {
-			fromClientErrCh <- err
+			t.Error(err)
 			return
 		}
 		defer conn.Close()
 		t.Log("accepted", conn.RemoteAddr())
 
-		b := make([]byte, 16)
-		readOnce(conn, b, data, t)
-
-		fromClientErrCh <- err
+		readUntilEOF(conn, helloworld, t)
+		write(conn, world, t)
+		write(conn, hello, t)
+		conn.CloseWrite()
+		ctrlCh <- struct{}{}
 	}()
 
 	var dialer Dialer
@@ -263,179 +154,91 @@ func TestClientWriteServerReadWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
-
-	write(c, data, t)
-
-	<-fromClientErrCh
-}
-
-func TestClientWriteServerReadWithLocalAddr(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
-
-	lntcp, err := ListenTCP("tcp", &net.TCPAddr{
-		IP: net.IPv6loopback,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lntcp.Close()
-	t.Log("listening on", lntcp.Addr())
-
-	fromClientErrCh := make(chan error)
-	go func() {
-		conn, err := lntcp.Accept()
-		if err != nil {
-			fromClientErrCh <- err
-			return
-		}
-		defer conn.Close()
-		t.Log("accepted", conn.RemoteAddr())
-
-		b := make([]byte, 16)
-		readOnce(conn, b, data, t)
-
-		fromClientErrCh <- err
-	}()
-
-	tc, err := DialTCP("tcp", &net.TCPAddr{
-		IP: net.IPv6loopback,
-	}, &net.TCPAddr{
-		IP:   net.IPv6loopback,
-		Port: lntcp.Addr().(*net.TCPAddr).Port,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	tc := c.(Conn)
 	defer tc.Close()
 
-	write(tc, data, t)
-
-	<-fromClientErrCh
-}
-
-func TestClientMultipleWritesServerReadAll(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
-
-	lntcp, err := ListenTCP("tcp", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lntcp.Close()
-	t.Log("listening on", lntcp.Addr())
-
-	fromClientErrCh := make(chan error)
-	go func() {
-		conn, err := lntcp.Accept()
-		if err != nil {
-			fromClientErrCh <- err
-			return
-		}
-		defer conn.Close()
-		t.Log("accepted", conn.RemoteAddr())
-
-		b := make([]byte, 16)
-		readUntilEOF(conn, b, data, t)
-
-		fromClientErrCh <- err
-	}()
-
-	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
-		IP:   net.IPv6loopback,
-		Port: lntcp.Addr().(*net.TCPAddr).Port,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tc.Close()
-
-	writeOneByteAtATime(tc, data, t)
+	write(tc, hello, t)
+	write(tc, world, t)
 	tc.CloseWrite()
-
-	<-fromClientErrCh
+	readUntilEOF(tc, worldhello, t)
+	<-ctrlCh
 }
 
-func TestServerWriteClientRead(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
+func testClientWriteReadServerReadWriteTCPAddr(listenTCPAddr, dialLocalTCPAddr *net.TCPAddr, t *testing.T) {
+	t.Logf("c->s payload: %v", helloworld)
+	t.Logf("s->c payload: %v", worldhello)
 
-	lntcp, err := ListenTCP("tcp", nil)
+	lntcp, err := ListenTCP("tcp", listenTCPAddr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer lntcp.Close()
 	t.Log("listening on", lntcp.Addr())
 
-	fromClientErrCh := make(chan error)
+	ctrlCh := make(chan struct{})
 	go func() {
 		conn, err := lntcp.AcceptTCP()
 		if err != nil {
-			fromClientErrCh <- err
+			t.Error(err)
 			return
 		}
-		t.Log("accepted", conn.RemoteAddr())
 		defer conn.Close()
+		t.Log("accepted", conn.RemoteAddr())
 
-		write(conn, data, t)
-
-		fromClientErrCh <- err
+		readUntilEOF(conn, helloworld, t)
+		write(conn, world, t)
+		write(conn, hello, t)
+		conn.CloseWrite()
+		ctrlCh <- struct{}{}
 	}()
 
-	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
-		IP:   net.IPv6loopback,
-		Port: lntcp.Addr().(*net.TCPAddr).Port,
+	port := lntcp.Addr().(*net.TCPAddr).Port
+	ip := net.IPv6loopback
+	if listenTCPAddr != nil && listenTCPAddr.IP != nil {
+		ip = listenTCPAddr.IP
+	}
+
+	tc, err := DialTCP("tcp", dialLocalTCPAddr, &net.TCPAddr{
+		IP:   ip,
+		Port: port,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tc.Close()
 
-	b := make([]byte, 16)
-	readOnce(tc, b, data, t)
-
-	<-fromClientErrCh
+	write(tc, hello, t)
+	write(tc, world, t)
+	tc.CloseWrite()
+	readUntilEOF(tc, worldhello, t)
+	<-ctrlCh
 }
 
-type fakeReader struct {
-	data []byte
-	pos  int
+func TestClientWriteReadServerReadWriteUnspecified(t *testing.T) {
+	testClientWriteReadServerReadWriteTCPAddr(nil, nil, t)
 }
 
-func (r *fakeReader) Read(b []byte) (n int, err error) {
-	if r.pos >= len(r.data) {
-		return 0, io.EOF
-	}
-	n = copy(b, r.data[n:])
-	r.pos += n
-	return
+func TestClientWriteReadServerReadWriteIPv4Loopback(t *testing.T) {
+	testClientWriteReadServerReadWriteTCPAddr(&net.TCPAddr{
+		IP: net.IPv4(127, 0, 0, 1),
+	}, nil, t)
 }
 
-func writeWithReadFrom(w io.ReaderFrom, data []byte, t *testing.T) {
-	dataLen := len(data)
-	r := &fakeReader{
-		data: data,
-	}
-	n, err := w.ReadFrom(r)
-	if err != nil {
-		t.Error(err)
-	}
-	bytesWritten := int(n)
-	if bytesWritten != dataLen {
-		t.Errorf("written %d bytes, should have written %d bytes", bytesWritten, dataLen)
-	}
+func TestClientWriteReadServerReadWriteIPv6Loopback(t *testing.T) {
+	testClientWriteReadServerReadWriteTCPAddr(&net.TCPAddr{
+		IP: net.IPv6loopback,
+	}, nil, t)
 }
 
-func TestFakeReader(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
-	writeWithReadFrom(io.Discard.(io.ReaderFrom), data, t)
+func TestClientWriteReadServerReadWriteDialBind(t *testing.T) {
+	testClientWriteReadServerReadWriteTCPAddr(nil, &net.TCPAddr{
+		IP: net.IPv6loopback,
+	}, t)
 }
 
-func TestClientWriteWithReadFromServerRead(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o'}
-	t.Log("payload: hello")
+func TestServerWriteReadClientReadWrite(t *testing.T) {
+	t.Logf("c->s payload: %v", helloworld)
+	t.Logf("s->c payload: %v", worldhello)
 
 	lntcp, err := ListenTCP("tcp", nil)
 	if err != nil {
@@ -444,20 +247,21 @@ func TestClientWriteWithReadFromServerRead(t *testing.T) {
 	defer lntcp.Close()
 	t.Log("listening on", lntcp.Addr())
 
-	fromClientErrCh := make(chan error)
+	ctrlCh := make(chan struct{})
 	go func() {
-		conn, err := lntcp.Accept()
+		conn, err := lntcp.AcceptTCP()
 		if err != nil {
-			fromClientErrCh <- err
+			t.Error(err)
 			return
 		}
-		defer conn.Close()
 		t.Log("accepted", conn.RemoteAddr())
+		defer conn.Close()
 
-		b := make([]byte, 16)
-		readOnce(conn, b, data, t)
-
-		fromClientErrCh <- err
+		write(conn, world, t)
+		write(conn, hello, t)
+		conn.CloseWrite()
+		readUntilEOF(conn, helloworld, t)
+		ctrlCh <- struct{}{}
 	}()
 
 	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
@@ -469,14 +273,59 @@ func TestClientWriteWithReadFromServerRead(t *testing.T) {
 	}
 	defer tc.Close()
 
-	writeWithReadFrom(tc, data, t)
+	readUntilEOF(tc, worldhello, t)
+	write(tc, hello, t)
+	write(tc, world, t)
+	tc.CloseWrite()
+	<-ctrlCh
+}
 
-	<-fromClientErrCh
+func TestClientServerReadFrom(t *testing.T) {
+	t.Logf("c->s payload: %v", helloworld)
+	t.Logf("s->c payload: %v", worldhello)
+
+	lntcp, err := ListenTCP("tcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lntcp.Close()
+	t.Log("listening on", lntcp.Addr())
+
+	ctrlCh := make(chan struct{})
+	go func() {
+		conn, err := lntcp.AcceptTCP()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer conn.Close()
+		t.Log("accepted", conn.RemoteAddr())
+
+		readUntilEOF(conn, helloworld, t)
+		writeWithReadFrom(conn, world, t)
+		writeWithReadFrom(conn, hello, t)
+		conn.CloseWrite()
+		ctrlCh <- struct{}{}
+	}()
+
+	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
+		IP:   net.IPv6loopback,
+		Port: lntcp.Addr().(*net.TCPAddr).Port,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tc.Close()
+
+	writeWithReadFrom(tc, hello, t)
+	writeWithReadFrom(tc, world, t)
+	tc.CloseWrite()
+	readUntilEOF(tc, worldhello, t)
+	<-ctrlCh
 }
 
 func TestSetDeadline(t *testing.T) {
-	data := []byte{'h', 'e', 'l', 'l', 'o', ',', ' ', 'w', 'o', 'r', 'l', 'd', '!', '\n'}
-	t.Log("payload: hello, world!")
+	t.Logf("payload: %v", helloWorldSentence)
 
 	lntcp, err := ListenTCP("tcp", nil)
 	if err != nil {
@@ -485,23 +334,19 @@ func TestSetDeadline(t *testing.T) {
 	defer lntcp.Close()
 	t.Log("listening on", lntcp.Addr())
 
-	fromClientErrCh := make(chan error)
-	safe2close := make(chan interface{})
+	ctrlCh := make(chan struct{})
 	go func() {
 		conn, err := lntcp.AcceptTCP()
 		if err != nil {
-			fromClientErrCh <- err
+			t.Error(err)
 			return
 		}
 		t.Log("accepted", conn.RemoteAddr())
 		defer conn.Close()
 
-		write(conn, data, t)
-
-		<-safe2close
-		b := make([]byte, 16)
-		readUntilEOF(conn, b, []byte{'h', 'l', 'l', ','}, t)
-		fromClientErrCh <- err
+		write(conn, helloWorldSentence, t)
+		readUntilEOF(conn, []byte{'h', 'l', 'l', ','}, t)
+		ctrlCh <- struct{}{}
 	}()
 
 	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
@@ -516,7 +361,7 @@ func TestSetDeadline(t *testing.T) {
 	b := make([]byte, 1)
 
 	// SetReadDeadline
-	readExactlyOneByte(tc, b, 'h', t)
+	readExactlyOneByte(tc, 'h', t)
 	if err := tc.SetReadDeadline(time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
@@ -526,40 +371,39 @@ func TestSetDeadline(t *testing.T) {
 	if err := tc.SetReadDeadline(time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	readExactlyOneByte(tc, b, 'e', t)
+	readExactlyOneByte(tc, 'e', t)
 
 	// SetWriteDeadline
-	write(tc, data[:1], t)
+	write(tc, helloWorldSentence[:1], t)
 	if err := tc.SetWriteDeadline(time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := tc.Write(data[1:2]); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+	if n, err := tc.Write(helloWorldSentence[1:2]); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatal(n, err)
 	}
 	if err := tc.SetWriteDeadline(time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	write(tc, data[2:3], t)
+	write(tc, helloWorldSentence[2:3], t)
 
 	// SetDeadline
-	readExactlyOneByte(tc, b, 'l', t)
-	write(tc, data[3:4], t)
+	readExactlyOneByte(tc, 'l', t)
+	write(tc, helloWorldSentence[3:4], t)
 	if err := tc.SetDeadline(time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tc.Read(b); !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatal(err)
 	}
-	if n, err := tc.Write(data[4:5]); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+	if n, err := tc.Write(helloWorldSentence[4:5]); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatal(n, err)
 	}
 	if err := tc.SetDeadline(time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	readExactlyOneByte(tc, b, 'l', t)
-	write(tc, data[5:6], t)
+	readExactlyOneByte(tc, 'l', t)
+	write(tc, helloWorldSentence[5:6], t)
 
 	tc.CloseWrite()
-	safe2close <- nil
-	<-fromClientErrCh
+	<-ctrlCh
 }
