@@ -242,7 +242,7 @@ func (c *tfoConn) Read(b []byte) (int, error) {
 	c.mu.Unlock()
 
 	n, err := c.f.Read(b)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		err = &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
 	}
 	return n, err
