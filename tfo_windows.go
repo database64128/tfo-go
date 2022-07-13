@@ -437,7 +437,7 @@ func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error)
 
 	err = winsock2.WSACloseEvent(efd)
 	if err != nil {
-		err = wrapSyscallError("WSACreateEvent", err)
+		err = wrapSyscallError("WSACloseEvent", err)
 	}
 
 	return
