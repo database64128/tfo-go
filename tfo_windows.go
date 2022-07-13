@@ -482,8 +482,9 @@ func (c *tfoConn) Write(b []byte) (n int, err error) {
 }
 
 func (c *tfoConn) Close() error {
-	windows.Shutdown(c.fd, windows.SHUT_RDWR)
-	windows.Closesocket(c.fd)
+	if err := windows.Closesocket(c.fd); err != nil {
+		return &net.OpError{Op: "close", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
+	}
 	return nil
 }
 
