@@ -37,6 +37,14 @@ func setIPv6Only(fd windows.Handle, family int, ipv6only int) error {
 	return nil
 }
 
+func setReadBuffer(fd windows.Handle, bytes int) error {
+	return windows.SetsockoptInt(fd, windows.SOL_SOCKET, windows.SO_RCVBUF, bytes)
+}
+
+func setWriteBuffer(fd windows.Handle, bytes int) error {
+	return windows.SetsockoptInt(fd, windows.SOL_SOCKET, windows.SO_SNDBUF, bytes)
+}
+
 func setNoDelay(fd windows.Handle, noDelay int) error {
 	return windows.SetsockoptInt(fd, windows.IPPROTO_TCP, windows.TCP_NODELAY, noDelay)
 }
@@ -526,6 +534,20 @@ func (c *tfoConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+func (c *tfoConn) SetReadBuffer(bytes int) error {
+	if err := setReadBuffer(c.fd, bytes); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: nil, Addr: c.laddr, Err: wrapSyscallError("setsockopt", err)}
+	}
+	return nil
+}
+
+func (c *tfoConn) SetWriteBuffer(bytes int) error {
+	if err := setWriteBuffer(c.fd, bytes); err != nil {
+		return &net.OpError{Op: "set", Net: c.network, Source: nil, Addr: c.laddr, Err: wrapSyscallError("setsockopt", err)}
+	}
+	return nil
+}
+
 func (c *tfoConn) SetNoDelay(noDelay bool) error {
 	var value int
 	if noDelay {
@@ -560,4 +582,12 @@ func (c *tfoConn) SetLinger(sec int) error {
 		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
 	}
 	return nil
+}
+
+func (c *tfoConn) SyscallConn() (syscall.RawConn, error) {
+	return &rawConn{fd: c.fd}, nil
+}
+
+func (c *tfoConn) File() (f *os.File, err error) {
+	return nil, syscall.EWINDOWS
 }

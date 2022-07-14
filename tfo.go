@@ -45,6 +45,14 @@ type Conn interface {
 	// Most callers should just use Close.
 	CloseWrite() error
 
+	// SetReadBuffer sets the size of the operating system's
+	// receive buffer associated with the connection.
+	SetReadBuffer(bytes int) error
+
+	// SetWriteBuffer sets the size of the operating system's
+	// transmit buffer associated with the connection.
+	SetWriteBuffer(bytes int) error
+
 	// SetLinger sets the behavior of Close on a connection which still
 	// has data waiting to be sent or to be acknowledged.
 	//
@@ -71,6 +79,19 @@ type Conn interface {
 
 	// SetKeepAlivePeriod sets period between keep-alives.
 	SetKeepAlivePeriod(d time.Duration) error
+
+	// SyscallConn returns a raw network connection.
+	// This implements the syscall.Conn interface.
+	SyscallConn() (syscall.RawConn, error)
+
+	// File returns a copy of the underlying os.File.
+	// It is the caller's responsibility to close f when finished.
+	// Closing c does not affect f, and closing f does not affect c.
+	//
+	// The returned os.File's file descriptor is different from the connection's.
+	// Attempting to change properties of the original using this duplicate
+	// may or may not have the desired effect.
+	File() (f *os.File, err error)
 }
 
 // ListenConfig wraps Go's net.ListenConfig along with an option that allows you to disable TFO.
