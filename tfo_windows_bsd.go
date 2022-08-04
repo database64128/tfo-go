@@ -265,6 +265,7 @@ func minNonzeroTime(a, b time.Time) time.Time {
 //   - now+Timeout
 //   - d.Deadline
 //   - the context's deadline
+//
 // Or zero, if none of Timeout, Deadline, or context's deadline is set.
 func (d *Dialer) deadline(ctx context.Context, now time.Time) (earliest time.Time) {
 	if d.Timeout != 0 { // including negative, for historical reasons
