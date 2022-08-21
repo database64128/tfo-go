@@ -1,6 +1,7 @@
 package tfo
 
 import (
+	"fmt"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -32,16 +33,36 @@ func socket(domain int) (int, error) {
 }
 
 func (c *tfoConn) connect(b []byte) (n int, err error) {
-	n, err = unix.SendmsgN(c.fd, b, nil, c.rsockaddr, 0)
-	if err != nil && err != unix.EINPROGRESS {
-		err = wrapSyscallError("sendmsg", err)
-		return
+	rawConn, err := c.f.SyscallConn()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get syscall.RawConn: %w", err)
 	}
-	if err == unix.EINPROGRESS { // n == 0
-		err = c.pollWriteReady()
-		if err != nil {
-			return
+
+	var done bool
+	perr := rawConn.Write(func(fd uintptr) bool {
+		if done {
+			return true
 		}
+
+		n, err = unix.SendmsgN(c.fd, b, nil, c.rsockaddr, 0)
+		switch err {
+		case unix.EINPROGRESS:
+			done = true
+			err = nil
+			return false
+		case unix.EAGAIN:
+			return false
+		default:
+			return true
+		}
+	})
+
+	if err != nil {
+		return 0, wrapSyscallError("sendmsg", err)
+	}
+
+	if perr != nil {
+		return 0, perr
 	}
 
 	err = c.getSocketError("sendmsg")
@@ -50,13 +71,5 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 	}
 
 	err = c.getLocalAddr()
-	if err != nil {
-		return
-	}
-
-	if n == 0 && len(b) > 0 {
-		return c.f.Write(b)
-	}
-
 	return
 }

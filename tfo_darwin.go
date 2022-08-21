@@ -2,6 +2,7 @@ package tfo
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"time"
 
@@ -64,16 +65,33 @@ func socket(domain int) (fd int, err error) {
 }
 
 func (c *tfoConn) connect(b []byte) (n int, err error) {
-	bytesSent, err := bsd.Connectx(c.fd, 0, nil, c.rsockaddr, b)
-	n = int(bytesSent)
-	if err != nil && err != unix.EINPROGRESS {
-		err = wrapSyscallError("connectx", err)
-		return
+	rawConn, err := c.f.SyscallConn()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get syscall.RawConn: %w", err)
 	}
 
-	err = c.pollWriteReady()
+	var done bool
+	perr := rawConn.Write(func(fd uintptr) bool {
+		if done {
+			return true
+		}
+
+		bytesSent, err := bsd.Connectx(c.fd, 0, nil, c.rsockaddr, b)
+		n = int(bytesSent)
+		done = true
+		if err == unix.EINPROGRESS {
+			err = nil
+			return false
+		}
+		return true
+	})
+
 	if err != nil {
-		return
+		return 0, wrapSyscallError("connectx", err)
+	}
+
+	if perr != nil {
+		return 0, perr
 	}
 
 	err = c.getSocketError("connectx")
