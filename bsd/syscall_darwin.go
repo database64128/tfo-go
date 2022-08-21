@@ -52,13 +52,11 @@ func sockaddr4(sa *unix.SockaddrInet4) (unsafe.Pointer, uint32, error) {
 	raw := unix.RawSockaddrInet4{
 		Len:    unix.SizeofSockaddrInet4,
 		Family: unix.AF_INET,
+		Addr:   sa.Addr,
 	}
 	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
 	p[0] = byte(sa.Port >> 8)
 	p[1] = byte(sa.Port)
-	for i := 0; i < len(sa.Addr); i++ {
-		raw.Addr[i] = sa.Addr[i]
-	}
 	return unsafe.Pointer(&raw), uint32(raw.Len), nil
 }
 
@@ -69,14 +67,12 @@ func sockaddr6(sa *unix.SockaddrInet6) (unsafe.Pointer, uint32, error) {
 	raw := unix.RawSockaddrInet6{
 		Len:    unix.SizeofSockaddrInet6,
 		Family: unix.AF_INET6,
+		Addr:   sa.Addr,
 	}
 	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
 	p[0] = byte(sa.Port >> 8)
 	p[1] = byte(sa.Port)
 	raw.Scope_id = sa.ZoneId
-	for i := 0; i < len(sa.Addr); i++ {
-		raw.Addr[i] = sa.Addr[i]
-	}
 	return unsafe.Pointer(&raw), uint32(raw.Len), nil
 }
 
@@ -108,7 +104,7 @@ func Connectx(s int, srcif uint, from unix.Sockaddr, to unix.Sockaddr, buf []byt
 		return 0, err
 	}
 
-	sae := &sa_endpoints_t{
+	sae := sa_endpoints_t{
 		sae_srcif:      srcif,
 		sae_srcaddr:    from_ptr,
 		sae_srcaddrlen: from_n,
@@ -116,9 +112,12 @@ func Connectx(s int, srcif uint, from unix.Sockaddr, to unix.Sockaddr, buf []byt
 		sae_dstaddrlen: to_n,
 	}
 
-	var flags uint
-	var iov *unix.Iovec
-	var iovcnt uint
+	var (
+		flags  uint
+		iov    *unix.Iovec
+		iovcnt uint
+	)
+
 	if len(buf) > 0 {
 		flags = CONNECT_DATA_IDEMPOTENT
 		iov = &unix.Iovec{
@@ -132,7 +131,7 @@ func Connectx(s int, srcif uint, from unix.Sockaddr, to unix.Sockaddr, buf []byt
 
 	r1, _, e1 := unix.Syscall9(unix.SYS_CONNECTX,
 		uintptr(s),
-		uintptr(unsafe.Pointer(sae)),
+		uintptr(unsafe.Pointer(&sae)),
 		SAE_ASSOCID_ANY,
 		uintptr(flags),
 		uintptr(unsafe.Pointer(iov)),
