@@ -30,10 +30,9 @@ func TestListenCtrlFn(t *testing.T) {
 	)
 
 	lc.Control = func(network, address string, c syscall.RawConn) error {
-		c.Control(func(fd uintptr) {
+		return c.Control(func(fd uintptr) {
 			success = fd != 0
 		})
-		return nil
 	}
 
 	ln, err := lc.Listen(context.Background(), "tcp", "")
@@ -71,10 +70,9 @@ func TestDialCtrlFn(t *testing.T) {
 	)
 
 	d.Control = func(network, address string, c syscall.RawConn) error {
-		c.Control(func(fd uintptr) {
+		return c.Control(func(fd uintptr) {
 			success = fd != 0
 		})
-		return nil
 	}
 
 	c, err := d.Dial("tcp", "example.com:443", hello)
