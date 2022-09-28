@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -22,50 +23,115 @@ var (
 	helloWorldSentence = []byte{'h', 'e', 'l', 'l', 'o', ',', ' ', 'w', 'o', 'r', 'l', 'd', '!', '\n'}
 )
 
-func TestListen(t *testing.T) {
-	ln, err := Listen("tcp", "")
+func TestListenCtrlFn(t *testing.T) {
+	var (
+		success bool
+		lc      ListenConfig
+	)
+
+	lc.Control = func(network, address string, c syscall.RawConn) error {
+		c.Control(func(fd uintptr) {
+			success = fd != 0
+		})
+		return nil
+	}
+
+	ln, err := lc.Listen(context.Background(), "tcp", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ln.Close()
+	defer ln.Close()
+
+	if !success {
+		t.Error("ListenConfig ctrlFn failed")
+	}
+
+	success = false
+
+	rawConn, err := ln.(*net.TCPListener).SyscallConn()
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if err = rawConn.Control(func(fd uintptr) {
+		success = fd != 0
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !success {
+		t.Error("TCPListener ctrlFn failed")
 	}
 }
 
-func TestListenTCP(t *testing.T) {
-	lntcp, err := ListenTCP("tcp", nil)
+func TestDialCtrlFn(t *testing.T) {
+	var (
+		success bool
+		d       Dialer
+	)
+
+	d.Control = func(network, address string, c syscall.RawConn) error {
+		c.Control(func(fd uintptr) {
+			success = fd != 0
+		})
+		return nil
+	}
+
+	c, err := d.Dial("tcp", "example.com:443", hello)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = lntcp.Close()
+	defer c.Close()
+
+	if !success {
+		t.Error("Dialer ctrlFn failed")
+	}
+
+	success = false
+
+	rawConn, err := c.(*net.TCPConn).SyscallConn()
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if err = rawConn.Control(func(fd uintptr) {
+		success = fd != 0
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !success {
+		t.Error("TCPConn ctrlFn failed")
 	}
 }
 
-func TestDial(t *testing.T) {
-	c, err := Dial("tcp", "example.com:443")
+func TestAddrFunctions(t *testing.T) {
+	ln, err := Listen("tcp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = c.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-}
+	lntcp := ln.(*net.TCPListener)
+	defer lntcp.Close()
 
-func TestDialTCP(t *testing.T) {
-	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
-		IP:   net.IPv4(1, 1, 1, 1),
-		Port: 443,
-	})
+	addr := lntcp.Addr().(*net.TCPAddr)
+	if !addr.IP.Equal(net.IPv6loopback) {
+		t.Fatalf("expected unspecified IP, got %v", addr.IP)
+	}
+	if addr.Port == 0 {
+		t.Fatalf("expected non-zero port, got %d", addr.Port)
+	}
+
+	c, err := Dial("tcp", addr.String(), hello)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = tc.Close()
-	if err != nil {
-		t.Fatal(err)
+	defer c.Close()
+
+	if laddr := c.LocalAddr().(*net.TCPAddr); !laddr.IP.Equal(net.IPv6loopback) || laddr.Port == 0 {
+		t.Errorf("Bad local addr: %v", laddr)
+	}
+	if raddr := c.RemoteAddr().(*net.TCPAddr); !raddr.IP.Equal(net.IPv6loopback) || raddr.Port != addr.Port {
+		t.Errorf("Bad remote addr: %v", raddr)
 	}
 }
 
@@ -150,14 +216,13 @@ func TestClientWriteReadServerReadWriteAddress(t *testing.T) {
 	}()
 
 	var dialer Dialer
-	c, err := dialer.Dial("tcp", fmt.Sprintf("localhost:%d", ln.Addr().(*net.TCPAddr).Port))
+	c, err := dialer.Dial("tcp", fmt.Sprintf("localhost:%d", ln.Addr().(*net.TCPAddr).Port), hello)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tc := c.(Conn)
+	tc := c.(*net.TCPConn)
 	defer tc.Close()
 
-	write(tc, hello, t)
 	write(tc, world, t)
 	tc.CloseWrite()
 	readUntilEOF(tc, worldhello, t)
@@ -201,13 +266,12 @@ func testClientWriteReadServerReadWriteTCPAddr(listenTCPAddr, dialLocalTCPAddr *
 	tc, err := DialTCP("tcp", dialLocalTCPAddr, &net.TCPAddr{
 		IP:   ip,
 		Port: port,
-	})
+	}, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tc.Close()
 
-	write(tc, hello, t)
 	write(tc, world, t)
 	tc.CloseWrite()
 	readUntilEOF(tc, worldhello, t)
@@ -267,7 +331,7 @@ func TestServerWriteReadClientReadWrite(t *testing.T) {
 	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
 		IP:   net.IPv6loopback,
 		Port: lntcp.Addr().(*net.TCPAddr).Port,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,13 +375,12 @@ func TestClientServerReadFrom(t *testing.T) {
 	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
 		IP:   net.IPv6loopback,
 		Port: lntcp.Addr().(*net.TCPAddr).Port,
-	})
+	}, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer tc.Close()
 
-	writeWithReadFrom(tc, hello, t)
 	writeWithReadFrom(tc, world, t)
 	tc.CloseWrite()
 	readUntilEOF(tc, worldhello, t)
@@ -352,7 +415,7 @@ func TestSetDeadline(t *testing.T) {
 	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
 		IP:   net.IPv6loopback,
 		Port: lntcp.Addr().(*net.TCPAddr).Port,
-	})
+	}, helloWorldSentence[:1])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +437,6 @@ func TestSetDeadline(t *testing.T) {
 	readExactlyOneByte(tc, 'e', t)
 
 	// SetWriteDeadline
-	write(tc, helloWorldSentence[:1], t)
 	if err := tc.SetWriteDeadline(time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}

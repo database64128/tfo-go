@@ -9,55 +9,41 @@ import (
 
 func TestListener(t *testing.T) {
 	ln, err := Listen("tcp", "")
-	if err != ErrPlatformUnsupported {
-		t.FailNow()
-		if err != nil {
-			t.Fatal(err)
-		}
+	if ln != nil {
+		t.Error("Expected nil listener")
 	}
-	err = ln.Close()
-	if err != nil {
-		t.Fatal(err)
+	if err != ErrPlatformUnsupported {
+		t.Errorf("Expected ErrPlatformUnsupported, got %v", err)
 	}
 
 	lntcp, err := ListenTCP("tcp", nil)
-	if err != ErrPlatformUnsupported {
-		t.FailNow()
-		if err != nil {
-			t.Fatal(err)
-		}
+	if lntcp != nil {
+		t.Error("Expected nil listener")
 	}
-	err = lntcp.Close()
-	if err != nil {
-		t.Fatal(err)
+	if err != ErrPlatformUnsupported {
+		t.Errorf("Expected ErrPlatformUnsupported, got %v", err)
 	}
 }
 
 func TestDialer(t *testing.T) {
-	c, err := Dial("tcp", "example.com:443")
-	if err != ErrPlatformUnsupported {
-		t.FailNow()
-		if err != nil {
-			t.Fatal(err)
-		}
+	foobar := []byte{'f', 'o', 'o', 'b', 'a', 'r'}
+
+	c, err := Dial("tcp", "example.com:443", foobar)
+	if c != nil {
+		t.Error("Expected nil connection")
 	}
-	err = c.Close()
-	if err != nil {
-		t.Fatal(err)
+	if err != ErrPlatformUnsupported {
+		t.Errorf("Expected ErrPlatformUnsupported, got %v", err)
 	}
 
 	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
 		IP:   net.IPv4(1, 1, 1, 1),
 		Port: 443,
-	})
-	if err != ErrPlatformUnsupported {
-		t.FailNow()
-		if err != nil {
-			t.Fatal(err)
-		}
+	}, foobar)
+	if tc != nil {
+		t.Error("Expected nil connection")
 	}
-	err = tc.Close()
-	if err != nil {
-		t.Fatal(err)
+	if err != ErrPlatformUnsupported {
+		t.Errorf("Expected ErrPlatformUnsupported, got %v", err)
 	}
 }

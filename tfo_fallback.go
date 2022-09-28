@@ -16,13 +16,10 @@ func SetTFODialer(fd uintptr) error {
 	return ErrPlatformUnsupported
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (Conn, error) {
-	d := net.Dialer{
-		LocalAddr: laddr,
-	}
-	c, err := d.DialContext(context.Background(), network, raddr.String())
-	if err != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: opAddr(raddr), Err: err}
-	}
-	return c.(Conn), ErrPlatformUnsupported
+func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
+	return nil, ErrPlatformUnsupported
+}
+
+func dialTFO(network string, laddr, raddr *net.TCPAddr, b []byte, ctrlFn func(string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+	return nil, ErrPlatformUnsupported
 }

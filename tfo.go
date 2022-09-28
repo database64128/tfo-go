@@ -1,17 +1,10 @@
-// Package tfo provides a series of wrappers around net.ListenConfig,
-// net.Listen(), net.ListenTCP(), net.Dialer, net.Dial(), net.DialTCP()
-// that seamlessly enable TCP Fast Open. These wrapper types and functions
-// can be used as drop-in replacements for their counterparts in Go 'net'
-// with minimal changes required.
+// Package tfo provides TCP Fast Open support for the [net] dialer and listener.
 //
-// This package supports Linux, Windows, macOS, and FreeBSD. On unsupported platforms,
-// tfo-go automatically falls back to non-TFO sockets and returns ErrPlatformUnsupported.
-// Make sure to check and handle/ignore such errors in your code.
+// The dial functions have an additional buffer parameter, which specifies data in SYN.
+// If the buffer is empty, TFO is not used.
 //
-// On Windows, all operations on a TFO-enabled connection will block the current goroutine thread,
-// because there's no way for `tfo-go` to utilize Go's runtime poller on Windows.
-// For real world applications with a fairly low number of connections, `tfo-go` will work just fine.
-// If your application needs to handle a lot of concurrent I/O, just don't use Windows!
+// This package supports Linux, Windows, macOS, and FreeBSD.
+// On unsupported platforms, [ErrPlatformUnsupported] is returned.
 //
 // FreeBSD code is completely untested. Use at your own risk. Feedback is welcome.
 package tfo
@@ -19,80 +12,14 @@ package tfo
 import (
 	"context"
 	"errors"
-	"io"
 	"net"
-	"os"
-	"syscall"
 	"time"
 )
 
 var (
-	ErrPlatformUnsupported     = errors.New("tfo-go does not support TCP Fast Open on this platform")
-	ErrMismatchedAddressFamily = errors.New("laddr and raddr are not the same address family")
+	ErrPlatformUnsupported = errors.New("tfo-go does not support TCP Fast Open on this platform")
+	errMissingAddress      = errors.New("missing address")
 )
-
-// Conn is a TCP connection of either net.TCPConn or tfoConn type.
-// It provides commonly used methods of net.TCPConn.
-type Conn interface {
-	net.Conn
-	io.ReaderFrom
-
-	// CloseRead shuts down the reading side of the TCP connection.
-	// Most callers should just use Close.
-	CloseRead() error
-
-	// CloseWrite shuts down the writing side of the TCP connection.
-	// Most callers should just use Close.
-	CloseWrite() error
-
-	// SetReadBuffer sets the size of the operating system's
-	// receive buffer associated with the connection.
-	SetReadBuffer(bytes int) error
-
-	// SetWriteBuffer sets the size of the operating system's
-	// transmit buffer associated with the connection.
-	SetWriteBuffer(bytes int) error
-
-	// SetLinger sets the behavior of Close on a connection which still
-	// has data waiting to be sent or to be acknowledged.
-	//
-	// If sec < 0 (the default), the operating system finishes sending the
-	// data in the background.
-	//
-	// If sec == 0, the operating system discards any unsent or
-	// unacknowledged data.
-	//
-	// If sec > 0, the data is sent in the background as with sec < 0. On
-	// some operating systems after sec seconds have elapsed any remaining
-	// unsent data may be discarded.
-	SetLinger(sec int) error
-
-	// SetNoDelay controls whether the operating system should delay
-	// packet transmission in hopes of sending fewer packets (Nagle's
-	// algorithm).  The default is true (no delay), meaning that data is
-	// sent as soon as possible after a Write.
-	SetNoDelay(noDelay bool) error
-
-	// SetKeepAlive sets whether the operating system should send
-	// keep-alive messages on the connection.
-	SetKeepAlive(keepalive bool) error
-
-	// SetKeepAlivePeriod sets period between keep-alives.
-	SetKeepAlivePeriod(d time.Duration) error
-
-	// SyscallConn returns a raw network connection.
-	// This implements the syscall.Conn interface.
-	SyscallConn() (syscall.RawConn, error)
-
-	// File returns a copy of the underlying os.File.
-	// It is the caller's responsibility to close f when finished.
-	// Closing c does not affect f, and closing f does not affect c.
-	//
-	// The returned os.File's file descriptor is different from the connection's.
-	// Attempting to change properties of the original using this duplicate
-	// may or may not have the desired effect.
-	File() (f *os.File, err error)
-}
 
 // ListenConfig wraps Go's net.ListenConfig along with an option that allows you to disable TFO.
 type ListenConfig struct {
@@ -111,13 +38,10 @@ type ListenConfig struct {
 //
 // This function enables TFO whenever possible, unless ListenConfig.DisableTFO is set to true.
 func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-		if !lc.DisableTFO {
-			return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_notdarwin.go
-		}
+	if lc.DisableTFO || network != "tcp" && network != "tcp4" && network != "tcp6" {
+		return lc.ListenConfig.Listen(ctx, network, address)
 	}
-	return lc.ListenConfig.Listen(ctx, network, address)
+	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_notdarwin.go
 }
 
 // ListenContext is a convenience function that allows you to specify a context within a single listen call.
@@ -172,11 +96,12 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 	default:
 		return nil, &net.OpError{Op: "listen", Net: network, Source: nil, Addr: opAddr(laddr), Err: net.UnknownNetworkError(network)}
 	}
-	if laddr == nil {
-		laddr = &net.TCPAddr{}
+	var address string
+	if laddr != nil {
+		address = laddr.String()
 	}
 	var lc ListenConfig
-	ln, err := lc.listenTFO(context.Background(), network, laddr.String()) // tfo_darwin.go, tfo_notdarwin.go
+	ln, err := lc.listenTFO(context.Background(), network, address) // tfo_darwin.go, tfo_notdarwin.go
 	if err != nil && err != ErrPlatformUnsupported {
 		return nil, err
 	}
@@ -213,14 +138,11 @@ type Dialer struct {
 // parameters.
 //
 // This function enables TFO whenever possible, unless Dialer.DisableTFO is set to true.
-func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-		if !d.DisableTFO {
-			return d.dialTFOContext(ctx, network, address) // tfo_windows_bsd.go, tfo_notwindowsbsd.go
-		}
+func (d *Dialer) DialContext(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
+	if d.DisableTFO || len(b) == 0 || network != "tcp" && network != "tcp4" && network != "tcp6" {
+		return d.Dialer.DialContext(ctx, network, address)
 	}
-	return d.Dialer.DialContext(ctx, network, address)
+	return d.dialTFOContext(ctx, network, address, b) // tfo_linux.go, tfo_windows_bsd.go, tfo_fallback.go
 }
 
 // Dial connects to the address on the named network.
@@ -232,8 +154,8 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string) (net.
 // DialContext.
 //
 // This function enables TFO whenever possible, unless Dialer.DisableTFO is set to true.
-func (d *Dialer) Dial(network, address string) (net.Conn, error) {
-	return d.DialContext(context.Background(), network, address)
+func (d *Dialer) Dial(network, address string, b []byte) (net.Conn, error) {
+	return d.DialContext(context.Background(), network, address, b)
 }
 
 // Dial connects to the address on the named network.
@@ -257,6 +179,7 @@ func (d *Dialer) Dial(network, address string) (net.Conn, error) {
 // Dial will try each IP address in order until one succeeds.
 //
 // Examples:
+//
 //	Dial("tcp", "golang.org:http")
 //	Dial("tcp", "192.0.2.1:http")
 //	Dial("tcp", "198.51.100.1:80")
@@ -272,6 +195,7 @@ func (d *Dialer) Dial(network, address string) (net.Conn, error) {
 // behaves with a non-well known protocol number such as "0" or "255".
 //
 // Examples:
+//
 //	Dial("ip4:1", "192.0.2.1")
 //	Dial("ip6:ipv6-icmp", "2001:db8::1")
 //	Dial("ip6:58", "fe80::1%lo0")
@@ -284,9 +208,9 @@ func (d *Dialer) Dial(network, address string) (net.Conn, error) {
 // For Unix networks, the address must be a file system path.
 //
 // This function enables TFO whenever possible.
-func Dial(network, address string) (net.Conn, error) {
+func Dial(network, address string, b []byte) (net.Conn, error) {
 	var d Dialer
-	return d.DialContext(context.Background(), network, address)
+	return d.DialContext(context.Background(), network, address, b)
 }
 
 // DialTimeout acts like Dial but takes a timeout.
@@ -301,10 +225,10 @@ func Dial(network, address string) (net.Conn, error) {
 // parameters.
 //
 // This function enables TFO whenever possible.
-func DialTimeout(network, address string, timeout time.Duration) (net.Conn, error) {
+func DialTimeout(network, address string, timeout time.Duration, b []byte) (net.Conn, error) {
 	var d Dialer
 	d.Timeout = timeout
-	return d.DialContext(context.Background(), network, address)
+	return d.DialContext(context.Background(), network, address, b)
 }
 
 // DialTCP acts like Dial for TCP networks.
@@ -316,13 +240,19 @@ func DialTimeout(network, address string, timeout time.Duration) (net.Conn, erro
 // local system is assumed.
 //
 // This function enables TFO whenever possible.
-func DialTCP(network string, laddr, raddr *net.TCPAddr) (Conn, error) {
+func DialTCP(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
+	if len(b) == 0 {
+		return net.DialTCP(network, laddr, raddr)
+	}
 	switch network {
 	case "tcp", "tcp4", "tcp6":
-		return dialTFO(network, laddr, raddr, nil) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go
 	default:
 		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: opAddr(raddr), Err: net.UnknownNetworkError(network)}
 	}
+	if raddr == nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: nil, Err: errMissingAddress}
+	}
+	return dialTFO(network, laddr, raddr, b, nil) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go
 }
 
 func opAddr(a *net.TCPAddr) net.Addr {
@@ -330,13 +260,4 @@ func opAddr(a *net.TCPAddr) net.Addr {
 		return nil
 	}
 	return a
-}
-
-// wrapSyscallError takes an error and a syscall name. If the error is
-// a syscall.Errno, it wraps it in a os.SyscallError using the syscall name.
-func wrapSyscallError(name string, err error) error {
-	if _, ok := err.(syscall.Errno); ok {
-		err = os.NewSyscallError(name, err)
-	}
-	return err
 }

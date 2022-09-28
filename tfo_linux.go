@@ -22,19 +22,34 @@ func SetTFODialer(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN_CONNECT, 1)
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (Conn, error) {
-	var innerErr error
-	d := net.Dialer{
-		LocalAddr: laddr,
-		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				innerErr = SetTFODialer(fd)
-			})
-		},
+func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
+	ld := *d
+	ld.Control = func(network, address string, c syscall.RawConn) (err error) {
+		if ctrlFn := d.Control; ctrlFn != nil {
+			if err = ctrlFn(network, address, c); err != nil {
+				return
+			}
+		}
+		return c.Control(func(fd uintptr) {
+			err = SetTFODialer(fd)
+		})
 	}
-	c, err := d.DialContext(context.Background(), network, raddr.String())
+	c, err := ld.Dialer.DialContext(ctx, network, address)
 	if err != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: opAddr(raddr), Err: err}
+		return nil, err
 	}
-	return c.(Conn), innerErr
+	if _, err = c.Write(b); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+func dialTFO(network string, laddr, raddr *net.TCPAddr, b []byte, ctrlFn func(string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+	d := Dialer{Dialer: net.Dialer{LocalAddr: laddr, Control: ctrlFn}}
+	c, err := d.dialTFOContext(context.Background(), network, raddr.String(), b)
+	if err != nil {
+		return nil, err
+	}
+	return c.(*net.TCPConn), nil
 }

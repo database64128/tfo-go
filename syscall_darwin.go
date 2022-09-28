@@ -1,7 +1,6 @@
-package bsd
+package tfo
 
 import (
-	"errors"
 	"syscall"
 	"unsafe"
 
@@ -32,48 +31,59 @@ func errnoErr(e syscall.Errno) error {
 	return e
 }
 
-func sockaddr(sa unix.Sockaddr) (unsafe.Pointer, uint32, error) {
+func sockaddrp(sa syscall.Sockaddr) (unsafe.Pointer, uint32, error) {
 	switch sa := sa.(type) {
 	case nil:
 		return nil, 0, nil
-	case *unix.SockaddrInet4:
-		return sockaddr4(sa)
-	case *unix.SockaddrInet6:
-		return sockaddr6(sa)
+	case *syscall.SockaddrInet4:
+		return (*sockaddrInet4)(unsafe.Pointer(sa)).sockaddr()
+	case *syscall.SockaddrInet6:
+		return (*sockaddrInet6)(unsafe.Pointer(sa)).sockaddr()
 	default:
-		return nil, 0, errors.New("unsupported unix.Sockaddr")
+		return nil, 0, syscall.EAFNOSUPPORT
 	}
 }
 
-func sockaddr4(sa *unix.SockaddrInet4) (unsafe.Pointer, uint32, error) {
-	if sa.Port < 0 || sa.Port > 0xFFFF {
-		return nil, 0, unix.EINVAL
-	}
-	raw := unix.RawSockaddrInet4{
-		Len:    unix.SizeofSockaddrInet4,
-		Family: unix.AF_INET,
-		Addr:   sa.Addr,
-	}
-	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
-	p[0] = byte(sa.Port >> 8)
-	p[1] = byte(sa.Port)
-	return unsafe.Pointer(&raw), uint32(raw.Len), nil
+// Copied from src/syscall/syscall_unix.go
+type sockaddrInet4 struct {
+	Port int
+	Addr [4]byte
+	raw  syscall.RawSockaddrInet4
 }
 
-func sockaddr6(sa *unix.SockaddrInet6) (unsafe.Pointer, uint32, error) {
+// Copied from src/syscall/syscall_unix.go
+type sockaddrInet6 struct {
+	Port   int
+	ZoneId uint32
+	Addr   [16]byte
+	raw    syscall.RawSockaddrInet6
+}
+
+func (sa *sockaddrInet4) sockaddr() (unsafe.Pointer, uint32, error) {
 	if sa.Port < 0 || sa.Port > 0xFFFF {
-		return nil, 0, unix.EINVAL
+		return nil, 0, syscall.EINVAL
 	}
-	raw := unix.RawSockaddrInet6{
-		Len:    unix.SizeofSockaddrInet6,
-		Family: unix.AF_INET6,
-		Addr:   sa.Addr,
-	}
-	p := (*[2]byte)(unsafe.Pointer(&raw.Port))
+	sa.raw.Len = syscall.SizeofSockaddrInet4
+	sa.raw.Family = syscall.AF_INET
+	p := (*[2]byte)(unsafe.Pointer(&sa.raw.Port))
 	p[0] = byte(sa.Port >> 8)
 	p[1] = byte(sa.Port)
-	raw.Scope_id = sa.ZoneId
-	return unsafe.Pointer(&raw), uint32(raw.Len), nil
+	sa.raw.Addr = sa.Addr
+	return unsafe.Pointer(&sa.raw), uint32(sa.raw.Len), nil
+}
+
+func (sa *sockaddrInet6) sockaddr() (unsafe.Pointer, uint32, error) {
+	if sa.Port < 0 || sa.Port > 0xFFFF {
+		return nil, 0, syscall.EINVAL
+	}
+	sa.raw.Len = syscall.SizeofSockaddrInet6
+	sa.raw.Family = syscall.AF_INET6
+	p := (*[2]byte)(unsafe.Pointer(&sa.raw.Port))
+	p[0] = byte(sa.Port >> 8)
+	p[1] = byte(sa.Port)
+	sa.raw.Scope_id = sa.ZoneId
+	sa.raw.Addr = sa.Addr
+	return unsafe.Pointer(&sa.raw), uint32(sa.raw.Len), nil
 }
 
 type sa_endpoints_t struct {
@@ -93,13 +103,13 @@ const (
 
 // Connectx enables TFO if a non-empty buf is passed.
 // If an empty buf is passed, TFO is not enabled.
-func Connectx(s int, srcif uint, from unix.Sockaddr, to unix.Sockaddr, buf []byte) (uint, error) {
-	from_ptr, from_n, err := sockaddr(from)
+func Connectx(s int, srcif uint, from syscall.Sockaddr, to syscall.Sockaddr, buf []byte) (uint, error) {
+	from_ptr, from_n, err := sockaddrp(from)
 	if err != nil {
 		return 0, err
 	}
 
-	to_ptr, to_n, err := sockaddr(to)
+	to_ptr, to_n, err := sockaddrp(to)
 	if err != nil {
 		return 0, err
 	}

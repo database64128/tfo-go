@@ -4,10 +4,11 @@ package tfo
 
 import (
 	"context"
-	"errors"
 	"net"
 	"os"
+	"syscall"
 	"time"
+	_ "unsafe"
 )
 
 const (
@@ -15,9 +16,93 @@ const (
 	defaultFallbackDelay = 300 * time.Millisecond
 )
 
-var errMissingAddress = errors.New("missing address")
+// Boolean to int.
+func boolint(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
 
-func (d *Dialer) dialTFOContext(ctx context.Context, network, address string) (net.Conn, error) {
+// A sockaddr represents a TCP, UDP, IP or Unix network endpoint
+// address that can be converted into a syscall.Sockaddr.
+//
+// Copied from src/net/sockaddr_posix.go
+type sockaddr interface {
+	net.Addr
+
+	// family returns the platform-dependent address family
+	// identifier.
+	family() int
+
+	// isWildcard reports whether the address is a wildcard
+	// address.
+	isWildcard() bool
+
+	// sockaddr returns the address converted into a syscall
+	// sockaddr type that implements syscall.Sockaddr
+	// interface. It returns a nil interface when the address is
+	// nil.
+	sockaddr(family int) (syscall.Sockaddr, error)
+
+	// toLocal maps the zero address to a local system address (127.0.0.1 or ::1)
+	toLocal(net string) sockaddr
+}
+
+type tcpSockaddr net.TCPAddr
+
+func (a *tcpSockaddr) Network() string {
+	return "tcp"
+}
+
+func (a *tcpSockaddr) String() string {
+	return (*net.TCPAddr)(a).String()
+}
+
+// Copied from src/net/tcpsock_posix.go
+func (a *tcpSockaddr) family() int {
+	if a == nil || len(a.IP) <= net.IPv4len {
+		return syscall.AF_INET
+	}
+	if a.IP.To4() != nil {
+		return syscall.AF_INET
+	}
+	return syscall.AF_INET6
+}
+
+// Copied from src/net/tcpsock_posix.go
+func (a *tcpSockaddr) isWildcard() bool {
+	if a == nil || a.IP == nil {
+		return true
+	}
+	return a.IP.IsUnspecified()
+}
+
+//go:linkname ipToSockaddr net.ipToSockaddr
+func ipToSockaddr(family int, ip net.IP, port int, zone string) (syscall.Sockaddr, error)
+
+// Copied from src/net/tcpsock_posix.go
+func (a *tcpSockaddr) sockaddr(family int) (syscall.Sockaddr, error) {
+	if a == nil {
+		return nil, nil
+	}
+	return ipToSockaddr(family, a.IP, a.Port, a.Zone)
+}
+
+//go:linkname loopbackIP net.loopbackIP
+func loopbackIP(net string) net.IP
+
+// Modified from src/net/tcpsock_posix.go
+func (a *tcpSockaddr) toLocal(net string) sockaddr {
+	la := *a
+	la.IP = loopbackIP(net)
+	return &la
+}
+
+//go:linkname favoriteAddrFamily net.favoriteAddrFamily
+func favoriteAddrFamily(network string, laddr, raddr sockaddr, mode string) (family int, ipv6only bool)
+
+func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
 	if ctx == nil {
 		panic("nil context")
 	}
@@ -83,11 +168,11 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string) (n
 		primaries = addrs
 	}
 
-	var c Conn
+	var c *net.TCPConn
 	if len(fallbacks) > 0 {
-		c, err = d.dialParallel(ctx, network, laddr, primaries, fallbacks)
+		c, err = d.dialParallel(ctx, network, laddr, primaries, fallbacks, b)
 	} else {
-		c, err = d.dialSerial(ctx, network, laddr, primaries)
+		c, err = d.dialSerial(ctx, network, laddr, primaries, b)
 	}
 	if err != nil {
 		return nil, err
@@ -108,16 +193,16 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string) (n
 // head start. It returns the first established connection and
 // closes the others. Otherwise it returns an error from the first
 // primary address.
-func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TCPAddr, primaries, fallbacks []net.TCPAddr) (Conn, error) {
+func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TCPAddr, primaries, fallbacks []net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	if len(fallbacks) == 0 {
-		return d.dialSerial(ctx, network, laddr, primaries)
+		return d.dialSerial(ctx, network, laddr, primaries, b)
 	}
 
 	returned := make(chan struct{})
 	defer close(returned)
 
 	type dialResult struct {
-		Conn
+		*net.TCPConn
 		error
 		primary bool
 		done    bool
@@ -129,9 +214,9 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TC
 		if !primary {
 			ras = fallbacks
 		}
-		c, err := d.dialSerial(ctx, network, laddr, ras)
+		c, err := d.dialSerial(ctx, network, laddr, ras, b)
 		select {
-		case results <- dialResult{Conn: c, error: err, primary: primary, done: true}:
+		case results <- dialResult{TCPConn: c, error: err, primary: primary, done: true}:
 		case <-returned:
 			if c != nil {
 				c.Close()
@@ -163,7 +248,7 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TC
 
 		case res := <-results:
 			if res.error == nil {
-				return res.Conn, nil
+				return res.TCPConn, nil
 			}
 			if res.primary {
 				primary = res
@@ -186,7 +271,7 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TC
 
 // dialSerial connects to a list of addresses in sequence, returning
 // either the first successful connection, or the first error.
-func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPAddr, ras []net.TCPAddr) (Conn, error) {
+func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPAddr, ras []net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	var firstErr error // The error from the first address is most relevant.
 
 	for i, ra := range ras {
@@ -211,7 +296,7 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			}
 		}
 
-		c, err := dialTFO(network, laddr, &ra, d.Control)
+		c, err := dialTFO(network, laddr, &ra, b, d.Control)
 		if err == nil {
 			err = c.SetDeadline(ddl)
 			return c, err
@@ -301,7 +386,11 @@ func partialDeadline(now, deadline time.Time, addrsRemaining int) (time.Time, er
 	return now.Add(timeout), nil
 }
 
-// roundDurationUp rounds d to the next multiple of to.
-func roundDurationUp(d time.Duration, to time.Duration) time.Duration {
-	return (d + to - 1) / to
+// wrapSyscallError takes an error and a syscall name. If the error is
+// a syscall.Errno, it wraps it in a os.SyscallError using the syscall name.
+func wrapSyscallError(name string, err error) error {
+	if _, ok := err.(syscall.Errno); ok {
+		err = os.NewSyscallError(name, err)
+	}
+	return err
 }

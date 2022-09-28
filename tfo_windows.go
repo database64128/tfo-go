@@ -1,15 +1,14 @@
+//lint:file-ignore U1000 linkname magic brings a lot of unused unexported fields.
+
 package tfo
 
 import (
-	"io"
 	"net"
 	"os"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 
-	"github.com/database64128/tfo-go/winsock2"
 	"golang.org/x/sys/windows"
 )
 
@@ -27,567 +26,283 @@ func setTFO(fd windows.Handle) error {
 	return windows.SetsockoptInt(fd, windows.IPPROTO_TCP, TCP_FASTOPEN, 1)
 }
 
-func setIPv6Only(fd windows.Handle, family int, ipv6only int) error {
+func setIPv6Only(fd windows.Handle, family int, ipv6only bool) error {
 	if family == windows.AF_INET6 {
 		// Allow both IP versions even if the OS default
 		// is otherwise. Note that some operating systems
 		// never admit this option.
-		windows.SetsockoptInt(fd, windows.IPPROTO_IPV6, windows.IPV6_V6ONLY, ipv6only)
+		return windows.SetsockoptInt(fd, windows.IPPROTO_IPV6, windows.IPV6_V6ONLY, boolint(ipv6only))
 	}
 	return nil
-}
-
-func setReadBuffer(fd windows.Handle, bytes int) error {
-	return windows.SetsockoptInt(fd, windows.SOL_SOCKET, windows.SO_RCVBUF, bytes)
-}
-
-func setWriteBuffer(fd windows.Handle, bytes int) error {
-	return windows.SetsockoptInt(fd, windows.SOL_SOCKET, windows.SO_SNDBUF, bytes)
 }
 
 func setNoDelay(fd windows.Handle, noDelay int) error {
 	return windows.SetsockoptInt(fd, windows.IPPROTO_TCP, windows.TCP_NODELAY, noDelay)
 }
 
-func setKeepAlive(fd windows.Handle, keepalive int) error {
-	return windows.SetsockoptInt(fd, windows.SOL_SOCKET, windows.SO_KEEPALIVE, keepalive)
-}
-
-func setKeepAlivePeriod(fd windows.Handle, d time.Duration) error {
-	// The kernel expects milliseconds so round to next highest
-	// millisecond.
-	msecs := uint32(roundDurationUp(d, time.Millisecond))
-	ka := windows.TCPKeepalive{
-		OnOff:    1,
-		Time:     msecs,
-		Interval: msecs,
-	}
-	ret := uint32(0)
-	size := uint32(unsafe.Sizeof(ka))
-	return windows.WSAIoctl(fd, windows.SIO_KEEPALIVE_VALS, (*byte)(unsafe.Pointer(&ka)), size, nil, 0, &ret, nil, 0)
-}
-
-func setLinger(fd windows.Handle, sec int) error {
-	var l windows.Linger
-	if sec >= 0 {
-		l.Onoff = 1
-		l.Linger = int32(sec)
-	} else {
-		l.Onoff = 0
-		l.Linger = 0
-	}
-	return windows.SetsockoptLinger(fd, windows.SOL_SOCKET, windows.SO_LINGER, &l)
-}
-
 func setUpdateConnectContext(fd windows.Handle) error {
 	return windows.Setsockopt(fd, windows.SOL_SOCKET, windows.SO_UPDATE_CONNECT_CONTEXT, nil, 0)
 }
 
-type tfoConn struct {
-	mu            sync.Mutex
-	fd            windows.Handle
-	connected     bool
-	network       string
-	laddr         *net.TCPAddr
-	raddr         *net.TCPAddr
-	lsockaddr     windows.Sockaddr
-	rsockaddr     windows.Sockaddr
-	readDeadline  time.Time
-	writeDeadline time.Time
+//go:linkname sockaddrToTCP net.sockaddrToTCP
+func sockaddrToTCP(sa syscall.Sockaddr) net.Addr
+
+//go:linkname runtime_pollServerInit internal/poll.runtime_pollServerInit
+func runtime_pollServerInit()
+
+//go:linkname runtime_pollOpen internal/poll.runtime_pollOpen
+func runtime_pollOpen(fd uintptr) (uintptr, int)
+
+// Copied from src/internal/pool/fd_poll_runtime.go
+var serverInit sync.Once
+
+// operation contains superset of data necessary to perform all async IO.
+//
+// Copied from src/internal/pool/fd_windows.go
+type operation struct {
+	// Used by IOCP interface, it must be first field
+	// of the struct, as our code rely on it.
+	o syscall.Overlapped
+
+	// fields used by runtime.netpoll
+	runtimeCtx uintptr
+	mode       int32
+	errno      int32
+	qty        uint32
+
+	// fields used only by net package
+	fd     *pFD
+	buf    syscall.WSABuf
+	msg    windows.WSAMsg
+	sa     syscall.Sockaddr
+	rsa    *syscall.RawSockaddrAny
+	rsan   int32
+	handle syscall.Handle
+	flags  uint32
+	bufs   []syscall.WSABuf
 }
 
-// rawConn implements syscall.RawConn.
-type rawConn struct {
-	fd windows.Handle
+//go:linkname execIO internal/poll.execIO
+func execIO(o *operation, submit func(o *operation) error) (int, error)
+
+// pFD is a file descriptor. The net and os packages embed this type in
+// a larger type representing a network connection or OS file.
+//
+// Copied from src/internal/pool/fd_windows.go
+type pFD struct {
+	fdmuS uint64
+	fdmuR uint32
+	fdmuW uint32
+
+	// System file descriptor. Immutable until Close.
+	Sysfd syscall.Handle
+
+	// Read operation.
+	rop operation
+	// Write operation.
+	wop operation
+
+	// I/O poller.
+	pd uintptr
+
+	// Used to implement pread/pwrite.
+	l sync.Mutex
+
+	// For console I/O.
+	lastbits       []byte   // first few bytes of the last incomplete rune in last write
+	readuint16     []uint16 // buffer to hold uint16s obtained with ReadConsole
+	readbyte       []byte   // buffer to hold decoding of readuint16 from utf16 to utf8
+	readbyteOffset int      // readbyte[readOffset:] is yet to be consumed with file.Read
+
+	// Semaphore signaled when file is closed.
+	csema uint32
+
+	skipSyncNotif bool
+
+	// Whether this is a streaming descriptor, as opposed to a
+	// packet-based descriptor like a UDP socket.
+	IsStream bool
+
+	// Whether a zero byte read indicates EOF. This is false for a
+	// message based socket connection.
+	ZeroReadIsEOF bool
+
+	// Whether this is a file rather than a network socket.
+	isFile bool
+
+	// The kind of this file.
+	kind byte
 }
 
-func (c *rawConn) Control(f func(uintptr)) error {
-	f(uintptr(c.fd))
+func (fd *pFD) init() error {
+	serverInit.Do(runtime_pollServerInit)
+	ctx, errno := runtime_pollOpen(uintptr(fd.Sysfd))
+	if errno != 0 {
+		return syscall.Errno(errno)
+	}
+	fd.pd = ctx
+	fd.rop.mode = 'r'
+	fd.wop.mode = 'w'
+	fd.rop.fd = fd
+	fd.wop.fd = fd
+	fd.rop.runtimeCtx = fd.pd
+	fd.wop.runtimeCtx = fd.pd
 	return nil
 }
 
-func (c *rawConn) Read(f func(uintptr) bool) error {
-	for {
-		if f(uintptr(c.fd)) {
-			return nil
-		}
-
-		_, err := winsock2.Recv(c.fd, nil, 0)
-		if err != nil && err != windows.WSAEMSGSIZE {
-			return err
-		}
-	}
+func (fd *pFD) ConnectEx(ra syscall.Sockaddr, b []byte) (n int, err error) {
+	fd.wop.sa = ra
+	n, err = execIO(&fd.wop, func(o *operation) error {
+		return syscall.ConnectEx(o.fd.Sysfd, o.sa, &b[0], uint32(len(b)), &o.qty, &o.o)
+	})
+	return
 }
 
-func (c *rawConn) Write(f func(uintptr) bool) error {
-	if f(uintptr(c.fd)) {
-		return nil
-	}
-	return syscall.EWINDOWS
+// Network file descriptor.
+//
+// Copied from src/net/fd_posix.go
+type netFD struct {
+	pfd pFD
+
+	// immutable until Close
+	family      int
+	sotype      int
+	isConnected bool // handshake completed or use of association with peer
+	net         string
+	laddr       net.Addr
+	raddr       net.Addr
 }
 
-func ctrlNetwork(network string, family int) string {
-	switch network {
-	case "tcp4", "tcp6":
-		return network
-	case "tcp":
-		switch family {
-		case windows.AF_INET:
-			return "tcp4"
-		case windows.AF_INET6:
-			return "tcp6"
-		}
+func (fd *netFD) ctrlNetwork() string {
+	if fd.net == "tcp4" || fd.family == windows.AF_INET {
+		return "tcp4"
 	}
 	return "tcp6"
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr, ctrlFn func(string, string, syscall.RawConn) error) (Conn, error) {
-	var domain int
-	var lsockaddr, rsockaddr windows.Sockaddr
+//go:linkname newFD net.newFD
+func newFD(sysfd syscall.Handle, family, sotype int, net string) (*netFD, error)
 
-	raddr4 := raddr.IP.To4()
-	raddrIs4 := raddr4 != nil
-	if raddrIs4 {
-		domain = windows.AF_INET
-		rsockaddr = &windows.SockaddrInet4{
-			Port: raddr.Port,
-			Addr: *(*[4]byte)(raddr4),
-		}
-	} else {
-		domain = windows.AF_INET6
-		rsockaddr = &windows.SockaddrInet6{
-			Port: raddr.Port,
-			Addr: *(*[16]byte)(raddr.IP),
-		}
-	}
+type rawConn netFD
+
+func (c *rawConn) Control(f func(uintptr)) error {
+	f(uintptr(c.pfd.Sysfd))
+	return nil
+}
+
+func (c *rawConn) Read(f func(uintptr) bool) error {
+	f(uintptr(c.pfd.Sysfd))
+	return syscall.EWINDOWS
+}
+
+func (c *rawConn) Write(f func(uintptr) bool) error {
+	f(uintptr(c.pfd.Sysfd))
+	return syscall.EWINDOWS
+}
+
+func dialTFO(network string, laddr, raddr *net.TCPAddr, b []byte, ctrlFn func(string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+	ltsa := (*tcpSockaddr)(laddr)
+	rtsa := (*tcpSockaddr)(raddr)
+	family, ipv6only := favoriteAddrFamily(network, ltsa, rtsa, "dial")
+
+	var (
+		ip   net.IP
+		port int
+		zone string
+	)
 
 	if laddr != nil {
-		laddr4 := laddr.IP.To4()
-		laddrIs4 := laddr4 != nil
-		if laddrIs4 != raddrIs4 {
-			return nil, ErrMismatchedAddressFamily
-		}
-		if laddrIs4 {
-			lsockaddr = &windows.SockaddrInet4{
-				Port: laddr.Port,
-				Addr: *(*[4]byte)(laddr4),
-			}
-		} else {
-			lsockaddr = &windows.SockaddrInet6{
-				Port: laddr.Port,
-				Addr: *(*[16]byte)(laddr.IP),
-			}
-		}
-	} else if raddrIs4 {
-		lsockaddr = &windows.SockaddrInet4{}
-	} else {
-		lsockaddr = &windows.SockaddrInet6{}
+		ip = laddr.IP
+		port = laddr.Port
+		zone = laddr.Zone
 	}
 
-	fd, err := windows.Socket(domain, windows.SOCK_STREAM, windows.IPPROTO_TCP)
+	lsa, err := ipToSockaddr(family, ip, port, zone)
 	if err != nil {
-		return nil, wrapSyscallError("socket", err)
+		return nil, err
 	}
 
-	var v6only int
-	if network == "tcp6" {
-		v6only = 1
+	rsa, err := rtsa.sockaddr(family)
+	if err != nil {
+		return nil, err
 	}
 
-	if err := setIPv6Only(fd, domain, v6only); err != nil {
-		windows.Closesocket(fd)
+	handle, err := windows.WSASocket(int32(family), windows.SOCK_STREAM, windows.IPPROTO_TCP, nil, 0, windows.WSA_FLAG_OVERLAPPED|windows.WSA_FLAG_NO_HANDLE_INHERIT)
+	if err != nil {
+		return nil, os.NewSyscallError("WSASocket", err)
+	}
+
+	fd, err := newFD(syscall.Handle(handle), family, windows.SOCK_STREAM, network)
+	if err != nil {
+		windows.Closesocket(handle)
+		return nil, err
+	}
+
+	tcpConn := (*net.TCPConn)(unsafe.Pointer(&fd))
+
+	if err := setIPv6Only(handle, family, ipv6only); err != nil {
+		tcpConn.Close()
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
-	if err := setNoDelay(fd, 1); err != nil {
-		windows.Closesocket(fd)
+	if err := setNoDelay(handle, 1); err != nil {
+		tcpConn.Close()
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
-	if err := setTFO(fd); err != nil {
-		windows.Closesocket(fd)
+	if err := setTFO(handle); err != nil {
+		tcpConn.Close()
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if ctrlFn != nil {
-		if err := ctrlFn(ctrlNetwork(network, domain), raddr.String(), &rawConn{fd: fd}); err != nil {
-			windows.Closesocket(fd)
+		if err := ctrlFn(fd.ctrlNetwork(), raddr.String(), (*rawConn)(fd)); err != nil {
+			tcpConn.Close()
 			return nil, err
 		}
 	}
 
-	if err := windows.Bind(fd, lsockaddr); err != nil {
-		windows.Closesocket(fd)
+	if err := syscall.Bind(syscall.Handle(handle), lsa); err != nil {
+		tcpConn.Close()
 		return nil, wrapSyscallError("bind", err)
 	}
 
-	return &tfoConn{
-		fd:        fd,
-		network:   network,
-		laddr:     laddr,
-		raddr:     raddr,
-		lsockaddr: lsockaddr,
-		rsockaddr: rsockaddr,
-	}, err
-}
-
-// connect calls ConnectEx with an optional first data to send in SYN.
-// This method does not check the connected variable.
-// Lock the mutex and only call this method if connected is false.
-// After the call, if the returned n is greater than 0 or error is nil, set connected to true.
-func (c *tfoConn) connect(b []byte) (n int, err error) {
-	var bytesSent uint32
-	var flags uint32
-	var overlapped windows.Overlapped
-	var sendBuf *byte
-	if len(b) > 0 {
-		sendBuf = &b[0]
+	if err := fd.pfd.init(); err != nil {
+		tcpConn.Close()
+		return nil, err
 	}
 
-	efd, err := winsock2.WSACreateEvent()
+	n, err := fd.pfd.ConnectEx(rsa, b)
 	if err != nil {
-		err = wrapSyscallError("WSACreateEvent", err)
-		return
-	}
-	overlapped.HEvent = efd
-
-	err = windows.ConnectEx(c.fd, c.rsockaddr, sendBuf, uint32(len(b)), &bytesSent, &overlapped)
-	if err == windows.ERROR_IO_PENDING {
-		err = windows.WSAGetOverlappedResult(c.fd, &overlapped, &bytesSent, true, &flags)
+		tcpConn.Close()
+		return nil, os.NewSyscallError("connectex", err)
 	}
 
-	cErr := winsock2.WSACloseEvent(efd)
+	if err := setUpdateConnectContext(handle); err != nil {
+		tcpConn.Close()
+		return nil, wrapSyscallError("setsockopt", err)
+	}
 
+	lsa, err = syscall.Getsockname(syscall.Handle(handle))
 	if err != nil {
-		err = wrapSyscallError("ConnectEx", err)
-		return
+		tcpConn.Close()
+		return nil, wrapSyscallError("getsockname", err)
 	}
-	if cErr != nil {
-		err = wrapSyscallError("WSACloseEvent", cErr)
-		return
-	}
+	fd.laddr = sockaddrToTCP(lsa)
 
-	err = setUpdateConnectContext(c.fd)
+	rsa, err = syscall.Getpeername(syscall.Handle(handle))
 	if err != nil {
-		err = wrapSyscallError("setsockopt", err)
-		return
+		tcpConn.Close()
+		return nil, wrapSyscallError("getpeername", err)
 	}
+	fd.raddr = sockaddrToTCP(rsa)
 
-	c.lsockaddr, err = windows.Getsockname(c.fd)
-	if err != nil {
-		err = wrapSyscallError("getsockname", err)
-		return
-	}
-	switch lsa := c.lsockaddr.(type) {
-	case *windows.SockaddrInet4:
-		c.laddr = &net.TCPAddr{
-			IP:   lsa.Addr[:],
-			Port: lsa.Port,
-		}
-	case *windows.SockaddrInet6: //TODO: convert zone id.
-		c.laddr = &net.TCPAddr{
-			IP:   lsa.Addr[:],
-			Port: lsa.Port,
+	if n < len(b) {
+		if _, err := tcpConn.Write(b[n:]); err != nil {
+			tcpConn.Close()
+			return nil, err
 		}
 	}
 
-	n = int(bytesSent)
-	return
-}
-
-func (c *tfoConn) Read(b []byte) (int, error) {
-	if !c.readDeadline.IsZero() && c.readDeadline.Before(time.Now()) {
-		return 0, &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: os.ErrDeadlineExceeded}
-	}
-
-	c.mu.Lock()
-	if !c.connected {
-		_, err := c.connect(nil)
-		if err != nil {
-			c.mu.Unlock()
-			return 0, &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
-		}
-		c.connected = true
-	}
-	c.mu.Unlock()
-
-	n, err := winsock2.Recv(c.fd, b, 0)
-	if n == 0 && err == nil {
-		return 0, io.EOF
-	}
-	if err != nil {
-		return 0, &net.OpError{Op: "read", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("recv", err)}
-	}
-	return int(n), nil
-}
-
-// ReadFrom utilizes the underlying file's ReadFrom method to minimize copies and allocations.
-// This method does not send data in SYN, because application protocols usually write headers
-// before calling ReadFrom/WriteTo.
-func (c *tfoConn) ReadFrom(r io.Reader) (int64, error) {
-	if !c.writeDeadline.IsZero() && c.writeDeadline.Before(time.Now()) {
-		return 0, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: os.ErrDeadlineExceeded}
-	}
-
-	c.mu.Lock()
-	if !c.connected {
-		_, err := c.connect(nil)
-		if err != nil {
-			c.mu.Unlock()
-			return 0, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
-		}
-		c.connected = true
-	}
-	c.mu.Unlock()
-
-	n, handled, err := c.sendFile(r)
-	if handled {
-		if err != nil {
-			return n, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
-		}
-		return n, nil
-	}
-
-	n, err = genericReadFrom(c, r)
-	if err != nil {
-		return n, &net.OpError{Op: "readfrom", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
-	}
-	return n, nil
-}
-
-func (c *tfoConn) sendFile(r io.Reader) (written int64, handled bool, err error) {
-	var n int64 = 0 // by default, copy until EOF.
-	var overlapped windows.Overlapped
-
-	lr, ok := r.(*io.LimitedReader)
-	if ok {
-		n, r = lr.N, lr.R
-		if n <= 0 {
-			return 0, true, nil
-		}
-	}
-
-	f, ok := r.(*os.File)
-	if !ok {
-		return 0, false, nil
-	}
-	fh := windows.Handle(f.Fd())
-
-	// TODO(brainman): skip calling windows.Seek if OS allows it
-	curpos, err := windows.Seek(fh, 0, io.SeekCurrent)
-	if err != nil {
-		return 0, false, wrapSyscallError("seek", err)
-	}
-
-	if n <= 0 { // We don't know the size of the file so infer it.
-		// Find the number of bytes offset from curpos until the end of the file.
-		n, err = windows.Seek(fh, -curpos, io.SeekEnd)
-		if err != nil {
-			err = wrapSyscallError("seek", err)
-			return
-		}
-		// Now seek back to the original position.
-		if _, err = windows.Seek(fh, curpos, io.SeekStart); err != nil {
-			err = wrapSyscallError("seek", err)
-			return
-		}
-	}
-
-	// TransmitFile can be invoked in one call with at most
-	// 2,147,483,646 bytes: the maximum value for a 32-bit integer minus 1.
-	// See https://docs.microsoft.com/en-us/windows/win32/api/mswsock/nf-mswsock-transmitfile
-	const maxChunkSizePerCall = int64(0x7fffffff - 1)
-
-	efd, err := winsock2.WSACreateEvent()
-	if err != nil {
-		err = wrapSyscallError("WSACreateEvent", err)
-		return
-	}
-	overlapped.HEvent = efd
-
-	for n > 0 {
-		var bytesSent uint32
-		var flags uint32
-		chunkSize := maxChunkSizePerCall
-		if chunkSize > n {
-			chunkSize = n
-		}
-
-		overlapped.Offset = uint32(curpos)
-		overlapped.OffsetHigh = uint32(curpos >> 32)
-
-		err = windows.TransmitFile(c.fd, fh, uint32(chunkSize), 0, &overlapped, nil, windows.TF_WRITE_BEHIND)
-		if err == windows.ERROR_IO_PENDING {
-			err = windows.WSAGetOverlappedResult(c.fd, &overlapped, &bytesSent, true, &flags)
-		}
-		if err != nil {
-			winsock2.WSACloseEvent(efd)
-			return written, true, wrapSyscallError("TransmitFile", err)
-		}
-
-		curpos += int64(bytesSent)
-
-		// Some versions of Windows (Windows 10 1803) do not set
-		// file position after TransmitFile completes.
-		// So just use Seek to set file position.
-		if _, err = windows.Seek(fh, curpos, io.SeekStart); err != nil {
-			winsock2.WSACloseEvent(efd)
-			return written, true, wrapSyscallError("seek", err)
-		}
-
-		n -= int64(bytesSent)
-		written += int64(bytesSent)
-	}
-
-	// If any byte was copied, regardless of any error
-	// encountered mid-way, handled must be set to true.
-	handled = written > 0
-
-	err = winsock2.WSACloseEvent(efd)
-	if err != nil {
-		err = wrapSyscallError("WSACloseEvent", err)
-	}
-
-	return
-}
-
-type writerOnly struct {
-	io.Writer
-}
-
-// Fallback implementation of io.ReaderFrom's ReadFrom, when sendfile isn't
-// applicable.
-func genericReadFrom(w io.Writer, r io.Reader) (n int64, err error) {
-	// Use wrapper to hide existing r.ReadFrom from io.Copy.
-	return io.Copy(writerOnly{w}, r)
-}
-
-func (c *tfoConn) Write(b []byte) (n int, err error) {
-	if !c.writeDeadline.IsZero() && c.writeDeadline.Before(time.Now()) {
-		return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: os.ErrDeadlineExceeded}
-	}
-
-	c.mu.Lock()
-	if !c.connected {
-		n, err = c.connect(b)
-		if err != nil {
-			c.mu.Unlock()
-			return 0, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
-		}
-		c.connected = true
-	}
-	c.mu.Unlock()
-
-	for n < len(b) {
-		ni32, err := winsock2.Send(c.fd, b[n:], 0)
-		if err != nil {
-			return n, &net.OpError{Op: "write", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("send", err)}
-		}
-		n += int(ni32)
-	}
-
-	return n, nil
-}
-
-func (c *tfoConn) Close() error {
-	if err := windows.Closesocket(c.fd); err != nil {
-		return &net.OpError{Op: "close", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: err}
-	}
-	return nil
-}
-
-func (c *tfoConn) CloseRead() error {
-	if err := windows.Shutdown(c.fd, windows.SHUT_RD); err != nil {
-		return &net.OpError{Op: "close", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("shutdown", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) CloseWrite() error {
-	if err := windows.Shutdown(c.fd, windows.SHUT_WR); err != nil {
-		return &net.OpError{Op: "close", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("shutdown", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) LocalAddr() net.Addr {
-	return c.laddr
-}
-
-func (c *tfoConn) RemoteAddr() net.Addr {
-	return c.raddr
-}
-
-func (c *tfoConn) SetDeadline(t time.Time) error {
-	c.SetReadDeadline(t)
-	c.SetWriteDeadline(t)
-	return nil
-}
-
-func (c *tfoConn) SetReadDeadline(t time.Time) error {
-	c.readDeadline = t
-	return nil
-}
-
-func (c *tfoConn) SetWriteDeadline(t time.Time) error {
-	c.writeDeadline = t
-	return nil
-}
-
-func (c *tfoConn) SetReadBuffer(bytes int) error {
-	if err := setReadBuffer(c.fd, bytes); err != nil {
-		return &net.OpError{Op: "set", Net: c.network, Source: nil, Addr: c.laddr, Err: wrapSyscallError("setsockopt", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) SetWriteBuffer(bytes int) error {
-	if err := setWriteBuffer(c.fd, bytes); err != nil {
-		return &net.OpError{Op: "set", Net: c.network, Source: nil, Addr: c.laddr, Err: wrapSyscallError("setsockopt", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) SetNoDelay(noDelay bool) error {
-	var value int
-	if noDelay {
-		value = 1
-	}
-	if err := setNoDelay(c.fd, value); err != nil {
-		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) SetKeepAlive(keepalive bool) error {
-	var value int
-	if keepalive {
-		value = 1
-	}
-	if err := setKeepAlive(c.fd, value); err != nil {
-		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) SetKeepAlivePeriod(d time.Duration) error {
-	if err := setKeepAlivePeriod(c.fd, d); err != nil {
-		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("WSAIoctl", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) SetLinger(sec int) error {
-	if err := setLinger(c.fd, sec); err != nil {
-		return &net.OpError{Op: "set", Net: c.network, Source: c.laddr, Addr: c.raddr, Err: wrapSyscallError("setsockopt", err)}
-	}
-	return nil
-}
-
-func (c *tfoConn) SyscallConn() (syscall.RawConn, error) {
-	return &rawConn{fd: c.fd}, nil
-}
-
-func (c *tfoConn) File() (f *os.File, err error) {
-	return nil, syscall.EWINDOWS
+	return tcpConn, nil
 }

@@ -2,11 +2,9 @@ package tfo
 
 import (
 	"context"
-	"fmt"
 	"net"
-	"time"
+	"syscall"
 
-	"github.com/database64128/tfo-go/bsd"
 	"golang.org/x/sys/unix"
 )
 
@@ -15,39 +13,37 @@ func SetTFOListener(fd uintptr) error {
 }
 
 func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
+	// darwin requires setting TCP_FASTOPEN after bind() and listen() calls.
 	ln, err := lc.ListenConfig.Listen(ctx, network, address)
 	if err != nil {
 		return nil, err
 	}
 
-	// darwin requires setting TCP_FASTOPEN after bind() and listen() calls.
-	var innerErr error
 	rawConn, err := ln.(*net.TCPListener).SyscallConn()
 	if err != nil {
 		ln.Close()
 		return nil, err
 	}
-	err = rawConn.Control(func(fd uintptr) {
+
+	var innerErr error
+
+	if err = rawConn.Control(func(fd uintptr) {
 		innerErr = SetTFOListener(fd)
-	})
-	if err != nil {
+	}); err != nil {
 		ln.Close()
 		return nil, err
 	}
-	return ln, innerErr
+
+	if innerErr != nil {
+		ln.Close()
+		return nil, innerErr
+	}
+
+	return ln, nil
 }
 
 func SetTFODialer(fd uintptr) error {
 	return nil
-}
-
-func setKeepAlivePeriod(fd int, d time.Duration) error {
-	// The kernel expects seconds so round to next highest second.
-	secs := int(roundDurationUp(d, time.Second))
-	if err := unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, secs); err != nil {
-		return err
-	}
-	return unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_KEEPALIVE, secs)
 }
 
 func socket(domain int) (fd int, err error) {
@@ -64,19 +60,15 @@ func socket(domain int) (fd int, err error) {
 	return
 }
 
-func (c *tfoConn) connect(b []byte) (n int, err error) {
-	rawConn, err := c.f.SyscallConn()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get syscall.RawConn: %w", err)
-	}
-
+func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, err error) {
 	var done bool
-	perr := rawConn.Write(func(fd uintptr) bool {
+
+	if perr := rawConn.Write(func(fd uintptr) bool {
 		if done {
 			return true
 		}
 
-		bytesSent, err := bsd.Connectx(c.fd, 0, nil, c.rsockaddr, b)
+		bytesSent, err := Connectx(int(fd), 0, nil, rsa, b)
 		n = int(bytesSent)
 		done = true
 		if err == unix.EINPROGRESS {
@@ -84,21 +76,19 @@ func (c *tfoConn) connect(b []byte) (n int, err error) {
 			return false
 		}
 		return true
-	})
+	}); perr != nil {
+		return 0, perr
+	}
 
 	if err != nil {
 		return 0, wrapSyscallError("connectx", err)
 	}
 
-	if perr != nil {
+	if perr := rawConn.Control(func(fd uintptr) {
+		err = getSocketError(int(fd), "connectx")
+	}); perr != nil {
 		return 0, perr
 	}
 
-	err = c.getSocketError("connectx")
-	if err != nil {
-		return
-	}
-
-	err = c.getLocalAddr()
 	return
 }
