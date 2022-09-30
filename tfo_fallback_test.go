@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestListener(t *testing.T) {
+func TestListenTFO(t *testing.T) {
 	ln, err := Listen("tcp", "")
 	if ln != nil {
 		t.Error("Expected nil listener")
@@ -25,10 +25,8 @@ func TestListener(t *testing.T) {
 	}
 }
 
-func TestDialer(t *testing.T) {
-	foobar := []byte{'f', 'o', 'o', 'b', 'a', 'r'}
-
-	c, err := Dial("tcp", "example.com:443", foobar)
+func TestDialTFO(t *testing.T) {
+	c, err := Dial("tcp", "example.com:443", hello)
 	if c != nil {
 		t.Error("Expected nil connection")
 	}
@@ -39,11 +37,39 @@ func TestDialer(t *testing.T) {
 	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
 		IP:   net.IPv4(1, 1, 1, 1),
 		Port: 443,
-	}, foobar)
+	}, hello)
 	if tc != nil {
 		t.Error("Expected nil connection")
 	}
 	if err != ErrPlatformUnsupported {
 		t.Errorf("Expected ErrPlatformUnsupported, got %v", err)
 	}
+}
+
+func TestListenCtrlFn(t *testing.T) {
+	testListenCtrlFn(t, defaultListenConfigNoTFO)
+}
+
+func TestDialCtrlFn(t *testing.T) {
+	testDialCtrlFn(t, defaultDialerNoTFO)
+}
+
+func TestAddrFunctions(t *testing.T) {
+	testAddrFunctions(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+}
+
+func TestClientWriteReadServerReadWrite(t *testing.T) {
+	testClientWriteReadServerReadWrite(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+}
+
+func TestServerWriteReadClientReadWrite(t *testing.T) {
+	testServerWriteReadClientReadWrite(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+}
+
+func TestClientServerReadFrom(t *testing.T) {
+	testClientServerReadFrom(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+}
+
+func TestSetDeadline(t *testing.T) {
+	testSetDeadline(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
 }
