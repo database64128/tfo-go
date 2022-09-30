@@ -139,8 +139,19 @@ type Dialer struct {
 //
 // This function enables TFO whenever possible, unless Dialer.DisableTFO is set to true.
 func (d *Dialer) DialContext(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
-	if d.DisableTFO || len(b) == 0 || network != "tcp" && network != "tcp4" && network != "tcp6" {
+	if len(b) == 0 {
 		return d.Dialer.DialContext(ctx, network, address)
+	}
+	if d.DisableTFO || network != "tcp" && network != "tcp4" && network != "tcp6" {
+		c, err := d.Dialer.DialContext(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = c.Write(b); err != nil {
+			c.Close()
+			return nil, err
+		}
+		return c, nil
 	}
 	return d.dialTFOContext(ctx, network, address, b) // tfo_linux.go, tfo_windows_bsd.go, tfo_fallback.go
 }
