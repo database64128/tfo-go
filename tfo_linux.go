@@ -30,9 +30,12 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 				return
 			}
 		}
-		return c.Control(func(fd uintptr) {
+		if cerr := c.Control(func(fd uintptr) {
 			err = SetTFODialer(fd)
-		})
+		}); cerr != nil {
+			return cerr
+		}
+		return
 	}
 	c, err := ld.Dialer.DialContext(ctx, network, address)
 	if err != nil {

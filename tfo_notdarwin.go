@@ -16,9 +16,12 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 				return
 			}
 		}
-		return c.Control(func(fd uintptr) {
+		if cerr := c.Control(func(fd uintptr) {
 			err = SetTFOListener(fd)
-		})
+		}); cerr != nil {
+			return cerr
+		}
+		return
 	}
 	return llc.ListenConfig.Listen(ctx, network, address)
 }
