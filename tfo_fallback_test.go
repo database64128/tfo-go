@@ -52,6 +52,8 @@ func TestListenCtrlFn(t *testing.T) {
 
 func TestDialCtrlFn(t *testing.T) {
 	testDialCtrlFn(t, defaultDialerNoTFO)
+	testDialCtrlCtxFn(t, defaultDialerNoTFO)
+	testDialCtrlCtxFnSupersedesCtrlFn(t, defaultDialerNoTFO)
 }
 
 func TestAddrFunctions(t *testing.T) {

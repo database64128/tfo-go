@@ -296,7 +296,14 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			}
 		}
 
-		c, err := dialTFO(network, laddr, &ra, b, d.Control)
+		ctrlCtxFn := d.ControlContext
+		if ctrlCtxFn == nil && d.Control != nil {
+			ctrlCtxFn = func(ctx context.Context, network, address string, c syscall.RawConn) error {
+				return d.Control(network, address, c)
+			}
+		}
+
+		c, err := dialTFO(ctx, network, laddr, &ra, b, ctrlCtxFn)
 		if err == nil {
 			err = c.SetDeadline(ddl)
 			return c, err

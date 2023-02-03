@@ -24,9 +24,14 @@ func SetTFODialer(fd uintptr) error {
 
 func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
 	ld := *d
-	ld.Control = func(network, address string, c syscall.RawConn) (err error) {
-		if ctrlFn := d.Control; ctrlFn != nil {
-			if err = ctrlFn(network, address, c); err != nil {
+	ld.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) (err error) {
+		switch {
+		case d.ControlContext != nil:
+			if err = d.ControlContext(ctx, network, address, c); err != nil {
+				return
+			}
+		case d.Control != nil:
+			if err = d.Control(network, address, c); err != nil {
 				return
 			}
 		}
@@ -48,9 +53,9 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 	return c, nil
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr, b []byte, ctrlFn func(string, string, syscall.RawConn) error) (*net.TCPConn, error) {
-	d := Dialer{Dialer: net.Dialer{LocalAddr: laddr, Control: ctrlFn}}
-	c, err := d.dialTFOContext(context.Background(), network, raddr.String(), b)
+func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+	d := Dialer{Dialer: net.Dialer{LocalAddr: laddr, ControlContext: ctrlCtxFn}}
+	c, err := d.dialTFOContext(ctx, network, raddr.String(), b)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@
 package tfo
 
 import (
+	"context"
 	"net"
 	"os"
 	"sync"
@@ -200,7 +201,7 @@ func (c *rawConn) Write(f func(uintptr) bool) error {
 	return syscall.EWINDOWS
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr, b []byte, ctrlFn func(string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
 	ltsa := (*tcpSockaddr)(laddr)
 	rtsa := (*tcpSockaddr)(raddr)
 	family, ipv6only := favoriteAddrFamily(network, ltsa, rtsa, "dial")
@@ -255,8 +256,8 @@ func dialTFO(network string, laddr, raddr *net.TCPAddr, b []byte, ctrlFn func(st
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
-	if ctrlFn != nil {
-		if err := ctrlFn(fd.ctrlNetwork(), raddr.String(), (*rawConn)(fd)); err != nil {
+	if ctrlCtxFn != nil {
+		if err := ctrlCtxFn(ctx, fd.ctrlNetwork(), raddr.String(), (*rawConn)(fd)); err != nil {
 			tcpConn.Close()
 			return nil, err
 		}

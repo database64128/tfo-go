@@ -11,8 +11,8 @@ import (
 func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
 	llc := *lc
 	llc.Control = func(network, address string, c syscall.RawConn) (err error) {
-		if ctrlFn := lc.Control; ctrlFn != nil {
-			if err = ctrlFn(network, address, c); err != nil {
+		if lc.Control != nil {
+			if err = lc.Control(network, address, c); err != nil {
 				return
 			}
 		}

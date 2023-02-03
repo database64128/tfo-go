@@ -61,6 +61,25 @@ func TestListenDialUDP(t *testing.T) {
 	testListenDialUDP(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
 }
 
+func testRawConnControl(t *testing.T, sc syscall.Conn) {
+	rawConn, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var success bool
+
+	if err = rawConn.Control(func(fd uintptr) {
+		success = fd != 0
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !success {
+		t.Error("RawConn Control failed")
+	}
+}
+
 func testListenCtrlFn(t *testing.T, lc ListenConfig) {
 	var success bool
 
@@ -80,22 +99,7 @@ func testListenCtrlFn(t *testing.T, lc ListenConfig) {
 		t.Error("ListenConfig ctrlFn failed")
 	}
 
-	success = false
-
-	rawConn, err := ln.(*net.TCPListener).SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err = rawConn.Control(func(fd uintptr) {
-		success = fd != 0
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	if !success {
-		t.Error("TCPListener ctrlFn failed")
-	}
+	testRawConnControl(t, ln.(syscall.Conn))
 }
 
 func testDialCtrlFn(t *testing.T, d Dialer) {
@@ -117,21 +121,58 @@ func testDialCtrlFn(t *testing.T, d Dialer) {
 		t.Error("Dialer ctrlFn failed")
 	}
 
-	success = false
+	testRawConnControl(t, c.(syscall.Conn))
+}
 
-	rawConn, err := c.(*net.TCPConn).SyscallConn()
+const (
+	ctxKey = 64
+	ctxVal = 128
+)
+
+func testDialCtrlCtxFn(t *testing.T, d Dialer) {
+	var success bool
+
+	d.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			success = fd != 0 && ctx.Value(ctxKey) == ctxVal
+		})
+	}
+
+	ctx := context.WithValue(context.Background(), ctxKey, ctxVal)
+	c, err := d.DialContext(ctx, "tcp", "example.com:443", hello)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if err = rawConn.Control(func(fd uintptr) {
-		success = fd != 0
-	}); err != nil {
-		t.Fatal(err)
-	}
+	defer c.Close()
 
 	if !success {
-		t.Error("TCPConn ctrlFn failed")
+		t.Error("Dialer ctrlCtxFn failed")
+	}
+
+	testRawConnControl(t, c.(syscall.Conn))
+}
+
+func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer) {
+	var ctrlCount int
+
+	d.Control = func(network, address string, c syscall.RawConn) error {
+		ctrlCount++
+		return nil
+	}
+
+	d.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) error {
+		ctrlCount++
+		return nil
+	}
+
+	c, err := d.Dial("tcp", "example.com:443", hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	if ctrlCount != 1 {
+		t.Errorf("Dialer control function called %d times, expected 1", ctrlCount)
 	}
 }
 

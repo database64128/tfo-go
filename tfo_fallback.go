@@ -20,6 +20,6 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 	return nil, ErrPlatformUnsupported
 }
 
-func dialTFO(network string, laddr, raddr *net.TCPAddr, b []byte, ctrlFn func(string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
 	return nil, ErrPlatformUnsupported
 }

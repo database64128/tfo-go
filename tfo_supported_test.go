@@ -18,9 +18,13 @@ func TestListenCtrlFn(t *testing.T) {
 func TestDialCtrlFn(t *testing.T) {
 	t.Run("TFO", func(t *testing.T) {
 		testDialCtrlFn(t, defaultDialer)
+		testDialCtrlCtxFn(t, defaultDialer)
+		testDialCtrlCtxFnSupersedesCtrlFn(t, defaultDialer)
 	})
 	t.Run("NoTFO", func(t *testing.T) {
 		testDialCtrlFn(t, defaultDialerNoTFO)
+		testDialCtrlCtxFn(t, defaultDialerNoTFO)
+		testDialCtrlCtxFnSupersedesCtrlFn(t, defaultDialerNoTFO)
 	})
 }
 

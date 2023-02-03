@@ -132,7 +132,7 @@ func DialTCP(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn,
 	if raddr == nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: nil, Err: errMissingAddress}
 	}
-	return dialTFO(network, laddr, raddr, b, nil) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go
+	return dialTFO(context.Background(), network, laddr, raddr, b, nil) // tfo_linux.go, tfo_windows.go, tfo_darwin.go, tfo_fallback.go
 }
 
 func opAddr(a *net.TCPAddr) net.Addr {
