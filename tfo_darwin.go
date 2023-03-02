@@ -70,8 +70,8 @@ func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, er
 
 		bytesSent, err := Connectx(int(fd), 0, nil, rsa, b)
 		n = int(bytesSent)
-		done = true
 		if err == unix.EINPROGRESS {
+			done = true
 			err = nil
 			return false
 		}
