@@ -126,14 +126,12 @@ func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, er
 		}
 
 		n, err = doConnect(fd, rsa, b)
-		switch err {
-		case unix.EINPROGRESS, unix.EINTR:
+		if err == unix.EINPROGRESS {
 			done = true
 			err = nil
 			return false
-		default:
-			return true
 		}
+		return true
 	}); perr != nil {
 		return 0, perr
 	}
@@ -156,11 +154,8 @@ func getSocketError(fd int, call string) error {
 	if err != nil {
 		return wrapSyscallError("getsockopt", err)
 	}
-
-	switch err := syscall.Errno(nerr); err {
-	case unix.EINPROGRESS, unix.EALREADY, unix.EINTR, unix.EISCONN, syscall.Errno(0):
-		return nil
-	default:
-		return os.NewSyscallError(call, err)
+	if nerr != 0 {
+		return os.NewSyscallError(call, syscall.Errno(nerr))
 	}
+	return nil
 }
