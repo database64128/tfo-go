@@ -97,14 +97,17 @@ func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, er
 			return true
 		}
 
-		bytesSent, err := Connectx(int(fd), 0, nil, rsa, b)
+		var bytesSent uint
+		bytesSent, err = Connectx(int(fd), 0, nil, rsa, b)
 		n = int(bytesSent)
-		if err == unix.EINPROGRESS {
+		switch err {
+		case unix.EINPROGRESS, unix.EINTR:
 			done = true
 			err = nil
 			return false
+		default:
+			return true
 		}
-		return true
 	}); perr != nil {
 		return 0, perr
 	}

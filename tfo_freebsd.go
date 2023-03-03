@@ -32,11 +32,9 @@ func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, er
 
 		n, err = syscall.SendmsgN(int(fd), b, nil, rsa, 0)
 		switch err {
-		case unix.EINPROGRESS:
+		case unix.EINPROGRESS, unix.EINTR:
 			done = true
 			err = nil
-			return false
-		case unix.EAGAIN:
 			return false
 		default:
 			return true
