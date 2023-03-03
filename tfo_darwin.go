@@ -89,38 +89,9 @@ func socket(domain int) (fd int, err error) {
 	return
 }
 
-func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, err error) {
-	var done bool
+const connectSyscallName = "connectx"
 
-	if perr := rawConn.Write(func(fd uintptr) bool {
-		if done {
-			return true
-		}
-
-		var bytesSent uint
-		bytesSent, err = Connectx(int(fd), 0, nil, rsa, b)
-		n = int(bytesSent)
-		switch err {
-		case unix.EINPROGRESS, unix.EINTR:
-			done = true
-			err = nil
-			return false
-		default:
-			return true
-		}
-	}); perr != nil {
-		return 0, perr
-	}
-
-	if err != nil {
-		return 0, wrapSyscallError("connectx", err)
-	}
-
-	if perr := rawConn.Control(func(fd uintptr) {
-		err = getSocketError(int(fd), "connectx")
-	}); perr != nil {
-		return 0, perr
-	}
-
-	return
+func doConnect(fd uintptr, rsa syscall.Sockaddr, b []byte) (int, error) {
+	n, err := Connectx(int(fd), 0, nil, rsa, b)
+	return int(n), err
 }
