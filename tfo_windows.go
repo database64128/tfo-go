@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -239,71 +240,100 @@ func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b [
 		return nil, err
 	}
 
-	tcpConn := (*net.TCPConn)(unsafe.Pointer(&fd))
+	tc := (*net.TCPConn)(unsafe.Pointer(&fd))
 
-	if err := setIPv6Only(handle, family, ipv6only); err != nil {
-		tcpConn.Close()
+	if err = setIPv6Only(handle, family, ipv6only); err != nil {
+		tc.Close()
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
-	if err := setNoDelay(handle, 1); err != nil {
-		tcpConn.Close()
+	if err = setNoDelay(handle, 1); err != nil {
+		tc.Close()
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
-	if err := setTFO(handle); err != nil {
-		tcpConn.Close()
+	if err = setTFO(handle); err != nil {
+		tc.Close()
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	if ctrlCtxFn != nil {
-		if err := ctrlCtxFn(ctx, fd.ctrlNetwork(), raddr.String(), (*rawConn)(fd)); err != nil {
-			tcpConn.Close()
+		if err = ctrlCtxFn(ctx, fd.ctrlNetwork(), raddr.String(), (*rawConn)(fd)); err != nil {
+			tc.Close()
 			return nil, err
 		}
 	}
 
-	if err := syscall.Bind(syscall.Handle(handle), lsa); err != nil {
-		tcpConn.Close()
+	if err = syscall.Bind(syscall.Handle(handle), lsa); err != nil {
+		tc.Close()
 		return nil, wrapSyscallError("bind", err)
 	}
 
-	if err := fd.pfd.init(); err != nil {
-		tcpConn.Close()
+	if err = fd.pfd.init(); err != nil {
+		tc.Close()
 		return nil, err
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		tc.SetWriteDeadline(deadline)
+		defer tc.SetWriteDeadline(time.Time{})
+	}
+
+	ctxDone := ctx.Done()
+	if ctxDone != nil {
+		done := make(chan struct{})
+		interruptRes := make(chan error)
+
+		defer func() {
+			close(done)
+			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
+				err = ctxErr
+				tc.Close()
+			}
+		}()
+
+		go func() {
+			select {
+			case <-ctxDone:
+				tc.SetWriteDeadline(aLongTimeAgo)
+				interruptRes <- ctx.Err()
+			case <-done:
+				interruptRes <- nil
+			}
+		}()
 	}
 
 	n, err := fd.pfd.ConnectEx(rsa, b)
 	if err != nil {
-		tcpConn.Close()
+		tc.Close()
 		return nil, os.NewSyscallError("connectex", err)
 	}
 
-	if err := setUpdateConnectContext(handle); err != nil {
-		tcpConn.Close()
+	if err = setUpdateConnectContext(handle); err != nil {
+		tc.Close()
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
 	lsa, err = syscall.Getsockname(syscall.Handle(handle))
 	if err != nil {
-		tcpConn.Close()
+		tc.Close()
 		return nil, wrapSyscallError("getsockname", err)
 	}
 	fd.laddr = sockaddrToTCP(lsa)
 
 	rsa, err = syscall.Getpeername(syscall.Handle(handle))
 	if err != nil {
-		tcpConn.Close()
+		tc.Close()
 		return nil, wrapSyscallError("getpeername", err)
 	}
 	fd.raddr = sockaddrToTCP(rsa)
 
 	if n < len(b) {
-		if _, err := tcpConn.Write(b[n:]); err != nil {
-			tcpConn.Close()
+		if _, err = tc.Write(b[n:]); err != nil {
+			tc.Close()
 			return nil, err
 		}
 	}
 
-	return tcpConn, nil
+	return tc, err
 }

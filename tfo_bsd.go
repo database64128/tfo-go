@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -52,17 +53,17 @@ func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b [
 		return nil, wrapSyscallError("socket", err)
 	}
 
-	if err := setIPv6Only(fd, family, ipv6only); err != nil {
+	if err = setIPv6Only(fd, family, ipv6only); err != nil {
 		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
-	if err := setNoDelay(fd, 1); err != nil {
+	if err = setNoDelay(fd, 1); err != nil {
 		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
 
-	if err := SetTFODialer(uintptr(fd)); err != nil {
+	if err = SetTFODialer(uintptr(fd)); err != nil {
 		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt", err)
 	}
@@ -80,7 +81,7 @@ func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b [
 	}
 
 	if ctrlCtxFn != nil {
-		if err := ctrlCtxFn(ctx, ctrlNetwork(network, family), raddr.String(), rawConn); err != nil {
+		if err = ctrlCtxFn(ctx, ctrlNetwork(network, family), raddr.String(), rawConn); err != nil {
 			return nil, err
 		}
 	}
@@ -96,7 +97,40 @@ func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b [
 		}
 	}
 
+	deadline, hasDeadline := ctx.Deadline()
+	if hasDeadline {
+		f.SetWriteDeadline(deadline)
+		defer f.SetWriteDeadline(time.Time{})
+	}
+
+	var (
+		done         chan struct{}
+		interruptRes chan error
+	)
+
+	ctxDone := ctx.Done()
+	if ctxDone != nil {
+		done = make(chan struct{})
+		interruptRes = make(chan error)
+
+		go func() {
+			select {
+			case <-ctxDone:
+				f.SetWriteDeadline(aLongTimeAgo)
+				interruptRes <- ctx.Err()
+			case <-done:
+				interruptRes <- nil
+			}
+		}()
+	}
+
 	n, err := connect(rawConn, rsa, b)
+	if ctxDone != nil {
+		done <- struct{}{}
+		if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
+			return nil, ctxErr
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -105,16 +139,41 @@ func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b [
 	if err != nil {
 		return nil, err
 	}
-	tcpConn := c.(*net.TCPConn)
+	tc := c.(*net.TCPConn)
+
+	if hasDeadline {
+		tc.SetDeadline(deadline)
+		defer tc.SetDeadline(time.Time{})
+	}
+
+	if ctxDone != nil {
+		defer func() {
+			close(done)
+			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
+				err = ctxErr
+				tc.Close()
+			}
+		}()
+
+		go func() {
+			select {
+			case <-ctxDone:
+				tc.SetWriteDeadline(aLongTimeAgo)
+				interruptRes <- ctx.Err()
+			case <-done:
+				interruptRes <- nil
+			}
+		}()
+	}
 
 	if n < len(b) {
-		if _, err := tcpConn.Write(b[n:]); err != nil {
-			tcpConn.Close()
+		if _, err = tc.Write(b[n:]); err != nil {
+			tc.Close()
 			return nil, err
 		}
 	}
 
-	return tcpConn, nil
+	return tc, err
 }
 
 func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, err error) {

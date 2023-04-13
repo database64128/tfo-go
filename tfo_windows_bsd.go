@@ -114,6 +114,18 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 			ctx = subCtx
 		}
 	}
+	if oldCancel := d.Cancel; oldCancel != nil {
+		subCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-oldCancel:
+				cancel()
+			case <-subCtx.Done():
+			}
+		}()
+		ctx = subCtx
+	}
 
 	var laddr *net.TCPAddr
 	if d.LocalAddr != nil {
@@ -146,22 +158,22 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 		return nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: err}
 	}
 
-	var addrs []net.TCPAddr
+	var addrs []*net.TCPAddr
 
 	for _, ipaddr := range ipaddrs {
 		if laddr != nil && !laddr.IP.IsUnspecified() && !matchAddrFamily(laddr.IP, ipaddr.IP) {
 			continue
 		}
-		addrs = append(addrs, net.TCPAddr{
+		addrs = append(addrs, &net.TCPAddr{
 			IP:   ipaddr.IP,
 			Port: portNum,
 			Zone: ipaddr.Zone,
 		})
 	}
 
-	var primaries, fallbacks []net.TCPAddr
+	var primaries, fallbacks []*net.TCPAddr
 	if d.FallbackDelay >= 0 && network == "tcp" {
-		primaries, fallbacks = partition(addrs, func(a net.TCPAddr) bool {
+		primaries, fallbacks = partition(addrs, func(a *net.TCPAddr) bool {
 			return a.IP.To4() != nil
 		})
 	} else {
@@ -193,7 +205,7 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 // head start. It returns the first established connection and
 // closes the others. Otherwise it returns an error from the first
 // primary address.
-func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TCPAddr, primaries, fallbacks []net.TCPAddr, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TCPAddr, primaries, fallbacks []*net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	if len(fallbacks) == 0 {
 		return d.dialSerial(ctx, network, laddr, primaries, b)
 	}
@@ -271,28 +283,30 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TC
 
 // dialSerial connects to a list of addresses in sequence, returning
 // either the first successful connection, or the first error.
-func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPAddr, ras []net.TCPAddr, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPAddr, ras []*net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	var firstErr error // The error from the first address is most relevant.
 
 	for i, ra := range ras {
 		select {
 		case <-ctx.Done():
-			return nil, &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: &ra, Err: ctx.Err()}
+			return nil, &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: ctx.Err()}
 		default:
 		}
 
-		var ddl time.Time
+		dialCtx := ctx
 		if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
 			partialDeadline, err := partialDeadline(time.Now(), deadline, len(ras)-i)
 			if err != nil {
 				// Ran out of time.
 				if firstErr == nil {
-					firstErr = &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: &ra, Err: err}
+					firstErr = &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: err}
 				}
 				break
 			}
 			if partialDeadline.Before(deadline) {
-				ddl = partialDeadline
+				var cancel context.CancelFunc
+				dialCtx, cancel = context.WithDeadline(ctx, partialDeadline)
+				defer cancel()
 			}
 		}
 
@@ -303,10 +317,9 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			}
 		}
 
-		c, err := dialTFO(ctx, network, laddr, &ra, b, ctrlCtxFn)
+		c, err := dialTFO(dialCtx, network, laddr, ra, b, ctrlCtxFn)
 		if err == nil {
-			err = c.SetDeadline(ddl)
-			return c, err
+			return c, nil
 		}
 		if firstErr == nil {
 			firstErr = err
@@ -329,7 +342,7 @@ func matchAddrFamily(x, y net.IP) bool {
 // primaries, while addresses with the opposite label are returned
 // as fallbacks. For non-empty inputs, primaries is guaranteed to be
 // non-empty.
-func partition(addrs []net.TCPAddr, strategy func(net.TCPAddr) bool) (primaries, fallbacks []net.TCPAddr) {
+func partition(addrs []*net.TCPAddr, strategy func(*net.TCPAddr) bool) (primaries, fallbacks []*net.TCPAddr) {
 	var primaryLabel bool
 	for i, addr := range addrs {
 		label := strategy(addr)
