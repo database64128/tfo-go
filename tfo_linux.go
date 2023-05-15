@@ -23,7 +23,7 @@ func SetTFODialer(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN_CONNECT, 1)
 }
 
-func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
+func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
 	ld := *d
 	ld.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) (err error) {
 		switch {
@@ -49,10 +49,11 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 		return nil
 	}
 
-	c, err := ld.Dialer.DialContext(ctx, network, address)
+	nc, err := ld.Dialer.DialContext(ctx, network, address)
 	if err != nil {
 		return nil, err
 	}
+	c := nc.(*net.TCPConn)
 
 	if deadline, ok := ctx.Deadline(); ok {
 		c.SetWriteDeadline(deadline)
@@ -90,11 +91,7 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 	return c, err
 }
 
-func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
-	d := Dialer{Dialer: net.Dialer{LocalAddr: laddr, ControlContext: ctrlCtxFn}}
-	c, err := d.dialTFOContext(ctx, network, raddr.String(), b)
-	if err != nil {
-		return nil, err
-	}
-	return c.(*net.TCPConn), nil
+func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
+	d := Dialer{Dialer: net.Dialer{LocalAddr: laddr}}
+	return d.dialTFOContext(context.Background(), network, raddr.String(), b)
 }
