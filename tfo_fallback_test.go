@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// fallbackCases references cases that have TFO disabled.
+// The index must be updated if [cases] is updated.
+var fallbackCases = cases[3:]
+
 func TestListenTFO(t *testing.T) {
 	ln, err := Listen("tcp", "")
 	if ln != nil {
@@ -47,31 +51,59 @@ func TestDialTFO(t *testing.T) {
 }
 
 func TestListenCtrlFn(t *testing.T) {
-	testListenCtrlFn(t, defaultListenConfigNoTFO)
+	for _, c := range fallbackCases {
+		t.Run(c.name, func(t *testing.T) {
+			testListenCtrlFn(t, c.listenConfig)
+		})
+	}
 }
 
 func TestDialCtrlFn(t *testing.T) {
-	testDialCtrlFn(t, defaultDialerNoTFO)
-	testDialCtrlCtxFn(t, defaultDialerNoTFO)
-	testDialCtrlCtxFnSupersedesCtrlFn(t, defaultDialerNoTFO)
+	for _, c := range fallbackCases {
+		t.Run(c.name, func(t *testing.T) {
+			testDialCtrlFn(t, c.dialer)
+			testDialCtrlCtxFn(t, c.dialer)
+			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer)
+		})
+	}
 }
 
 func TestAddrFunctions(t *testing.T) {
-	testAddrFunctions(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+	for _, c := range fallbackCases {
+		t.Run(c.name, func(t *testing.T) {
+			testAddrFunctions(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestClientWriteReadServerReadWrite(t *testing.T) {
-	testClientWriteReadServerReadWrite(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+	for _, c := range fallbackCases {
+		t.Run(c.name, func(t *testing.T) {
+			testClientWriteReadServerReadWrite(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestServerWriteReadClientReadWrite(t *testing.T) {
-	testServerWriteReadClientReadWrite(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+	for _, c := range fallbackCases {
+		t.Run(c.name, func(t *testing.T) {
+			testServerWriteReadClientReadWrite(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestClientServerReadFrom(t *testing.T) {
-	testClientServerReadFrom(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+	for _, c := range fallbackCases {
+		t.Run(c.name, func(t *testing.T) {
+			testClientServerReadFrom(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestSetDeadline(t *testing.T) {
-	testSetDeadline(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+	for _, c := range fallbackCases {
+		t.Run(c.name, func(t *testing.T) {
+			testSetDeadline(t, c.listenConfig, c.dialer)
+		})
+	}
 }

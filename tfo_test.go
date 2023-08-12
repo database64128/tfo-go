@@ -12,12 +12,32 @@ import (
 	"time"
 )
 
-var (
-	defaultDialer            Dialer
-	defaultDialerNoTFO       = Dialer{DisableTFO: true}
-	defaultListenConfig      ListenConfig
-	defaultListenConfigNoTFO = ListenConfig{DisableTFO: true}
-)
+// cases is a list of test cases for the [ListenConfig] and [Dialer] structs.
+//
+// [fallbackCases] in tfo_fallback_test.go must be updated if this list is updated.
+var cases = []struct {
+	name         string
+	listenConfig ListenConfig
+	dialer       Dialer
+}{
+	{"TFO", ListenConfig{}, Dialer{}},
+	{"TFO/MPTCPEnabled", ListenConfig{}, Dialer{}},
+	{"TFO/MPTCPDisabled", ListenConfig{}, Dialer{}},
+	{"NoTFO", ListenConfig{DisableTFO: true}, Dialer{DisableTFO: true}},
+	{"NoTFO/MPTCPEnabled", ListenConfig{DisableTFO: true}, Dialer{DisableTFO: true}},
+	{"NoTFO/MPTCPDisabled", ListenConfig{DisableTFO: true}, Dialer{DisableTFO: true}},
+}
+
+func init() {
+	cases[1].listenConfig.SetMultipathTCP(true)
+	cases[1].dialer.SetMultipathTCP(true)
+	cases[2].listenConfig.SetMultipathTCP(false)
+	cases[2].dialer.SetMultipathTCP(false)
+	cases[4].listenConfig.SetMultipathTCP(true)
+	cases[4].dialer.SetMultipathTCP(true)
+	cases[5].listenConfig.SetMultipathTCP(false)
+	cases[5].dialer.SetMultipathTCP(false)
+}
 
 var (
 	hello              = []byte{'h', 'e', 'l', 'l', 'o'}
@@ -57,8 +77,11 @@ func testListenDialUDP(t *testing.T, lc ListenConfig, d Dialer) {
 // TestListenDialUDP ensures that the UDP capabilities of [ListenConfig] and
 // [Dialer] are not affected by this package.
 func TestListenDialUDP(t *testing.T) {
-	testListenDialUDP(t, defaultListenConfig, defaultDialer)
-	testListenDialUDP(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testListenDialUDP(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func testRawConnControl(t *testing.T, sc syscall.Conn) {

@@ -19,9 +19,20 @@ import (
 )
 
 var (
-	ErrPlatformUnsupported = errors.New("tfo-go does not support TCP Fast Open on this platform")
+	ErrPlatformUnsupported PlatformUnsupportedError
 	errMissingAddress      = errors.New("missing address")
 )
+
+// PlatformUnsupportedError is returned when tfo-go does not support TCP Fast Open on the current platform.
+type PlatformUnsupportedError struct{}
+
+func (PlatformUnsupportedError) Error() string {
+	return "tfo-go does not support TCP Fast Open on this platform"
+}
+
+func (PlatformUnsupportedError) Is(target error) bool {
+	return target == errors.ErrUnsupported
+}
 
 // ListenConfig wraps [net.ListenConfig] with an additional option that allows you to disable TFO.
 type ListenConfig struct {
@@ -66,7 +77,7 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 	}
 	var lc ListenConfig
 	ln, err := lc.listenTFO(context.Background(), network, address) // tfo_darwin.go, tfo_notdarwin.go
-	if err != nil && err != ErrPlatformUnsupported {
+	if err != nil {
 		return nil, err
 	}
 	return ln.(*net.TCPListener), err

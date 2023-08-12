@@ -7,68 +7,59 @@ import (
 )
 
 func TestListenCtrlFn(t *testing.T) {
-	t.Run("TFO", func(t *testing.T) {
-		testListenCtrlFn(t, defaultListenConfig)
-	})
-	t.Run("NoTFO", func(t *testing.T) {
-		testListenCtrlFn(t, defaultListenConfigNoTFO)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testListenCtrlFn(t, c.listenConfig)
+		})
+	}
 }
 
 func TestDialCtrlFn(t *testing.T) {
-	t.Run("TFO", func(t *testing.T) {
-		testDialCtrlFn(t, defaultDialer)
-		testDialCtrlCtxFn(t, defaultDialer)
-		testDialCtrlCtxFnSupersedesCtrlFn(t, defaultDialer)
-	})
-	t.Run("NoTFO", func(t *testing.T) {
-		testDialCtrlFn(t, defaultDialerNoTFO)
-		testDialCtrlCtxFn(t, defaultDialerNoTFO)
-		testDialCtrlCtxFnSupersedesCtrlFn(t, defaultDialerNoTFO)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testDialCtrlFn(t, c.dialer)
+			testDialCtrlCtxFn(t, c.dialer)
+			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer)
+		})
+	}
 }
 
 func TestAddrFunctions(t *testing.T) {
-	t.Run("TFO", func(t *testing.T) {
-		testAddrFunctions(t, defaultListenConfig, defaultDialer)
-	})
-	t.Run("NoTFO", func(t *testing.T) {
-		testAddrFunctions(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testAddrFunctions(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestClientWriteReadServerReadWrite(t *testing.T) {
-	t.Run("TFO", func(t *testing.T) {
-		testClientWriteReadServerReadWrite(t, defaultListenConfig, defaultDialer)
-	})
-	t.Run("NoTFO", func(t *testing.T) {
-		testClientWriteReadServerReadWrite(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testClientWriteReadServerReadWrite(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestServerWriteReadClientReadWrite(t *testing.T) {
-	t.Run("TFO", func(t *testing.T) {
-		testServerWriteReadClientReadWrite(t, defaultListenConfig, defaultDialer)
-	})
-	t.Run("NoTFO", func(t *testing.T) {
-		testServerWriteReadClientReadWrite(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testServerWriteReadClientReadWrite(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestClientServerReadFrom(t *testing.T) {
-	t.Run("TFO", func(t *testing.T) {
-		testClientServerReadFrom(t, defaultListenConfig, defaultDialer)
-	})
-	t.Run("NoTFO", func(t *testing.T) {
-		testClientServerReadFrom(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testClientServerReadFrom(t, c.listenConfig, c.dialer)
+		})
+	}
 }
 
 func TestSetDeadline(t *testing.T) {
-	t.Run("TFO", func(t *testing.T) {
-		testSetDeadline(t, defaultListenConfig, defaultDialer)
-	})
-	t.Run("NoTFO", func(t *testing.T) {
-		testSetDeadline(t, defaultListenConfigNoTFO, defaultDialerNoTFO)
-	})
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testSetDeadline(t, c.listenConfig, c.dialer)
+		})
+	}
 }
