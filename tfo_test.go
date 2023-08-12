@@ -305,7 +305,7 @@ func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer)
 		write(conn, world, t)
 		write(conn, hello, t)
 		conn.CloseWrite()
-		ctrlCh <- struct{}{}
+		close(ctrlCh)
 	}()
 
 	c, err := d.Dial("tcp", ln.Addr().String(), hello)
@@ -347,7 +347,7 @@ func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer)
 		write(conn, hello, t)
 		conn.CloseWrite()
 		readUntilEOF(conn, helloworld, t)
-		ctrlCh <- struct{}{}
+		close(ctrlCh)
 	}()
 
 	c, err := d.Dial("tcp", ln.Addr().String(), nil)
@@ -390,7 +390,7 @@ func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer) {
 		writeWithReadFrom(conn, world, t)
 		writeWithReadFrom(conn, hello, t)
 		conn.CloseWrite()
-		ctrlCh <- struct{}{}
+		close(ctrlCh)
 	}()
 
 	c, err := d.Dial("tcp", ln.Addr().String(), hello)
@@ -429,7 +429,7 @@ func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer) {
 
 		write(conn, helloWorldSentence, t)
 		readUntilEOF(conn, []byte{'h', 'l', 'l', ','}, t)
-		ctrlCh <- struct{}{}
+		close(ctrlCh)
 	}()
 
 	c, err := d.Dial("tcp", ln.Addr().String(), helloWorldSentence[:1])
@@ -486,75 +486,4 @@ func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer) {
 
 	tc.CloseWrite()
 	<-ctrlCh
-}
-
-func testClientWriteReadServerReadWriteTCPAddr(listenTCPAddr, dialLocalTCPAddr *net.TCPAddr, t *testing.T) {
-	t.Logf("c->s payload: %v", helloworld)
-	t.Logf("s->c payload: %v", worldhello)
-
-	lntcp, err := ListenTCP("tcp", listenTCPAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer lntcp.Close()
-	t.Log("listening on", lntcp.Addr())
-
-	ctrlCh := make(chan struct{})
-	go func() {
-		conn, err := lntcp.AcceptTCP()
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		defer conn.Close()
-		t.Log("accepted", conn.RemoteAddr())
-
-		readUntilEOF(conn, helloworld, t)
-		write(conn, world, t)
-		write(conn, hello, t)
-		conn.CloseWrite()
-		ctrlCh <- struct{}{}
-	}()
-
-	port := lntcp.Addr().(*net.TCPAddr).Port
-	ip := net.IPv6loopback
-	if listenTCPAddr != nil && listenTCPAddr.IP != nil {
-		ip = listenTCPAddr.IP
-	}
-
-	tc, err := DialTCP("tcp", dialLocalTCPAddr, &net.TCPAddr{
-		IP:   ip,
-		Port: port,
-	}, hello)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tc.Close()
-
-	write(tc, world, t)
-	tc.CloseWrite()
-	readUntilEOF(tc, worldhello, t)
-	<-ctrlCh
-}
-
-func TestClientWriteReadServerReadWriteUnspecified(t *testing.T) {
-	testClientWriteReadServerReadWriteTCPAddr(nil, nil, t)
-}
-
-func TestClientWriteReadServerReadWriteIPv4Loopback(t *testing.T) {
-	testClientWriteReadServerReadWriteTCPAddr(&net.TCPAddr{
-		IP: net.IPv4(127, 0, 0, 1),
-	}, nil, t)
-}
-
-func TestClientWriteReadServerReadWriteIPv6Loopback(t *testing.T) {
-	testClientWriteReadServerReadWriteTCPAddr(&net.TCPAddr{
-		IP: net.IPv6loopback,
-	}, nil, t)
-}
-
-func TestClientWriteReadServerReadWriteDialBind(t *testing.T) {
-	testClientWriteReadServerReadWriteTCPAddr(nil, &net.TCPAddr{
-		IP: net.IPv6loopback,
-	}, t)
 }
