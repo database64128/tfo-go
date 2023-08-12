@@ -176,15 +176,15 @@ func testDialCtrlCtxFn(t *testing.T, d Dialer) {
 }
 
 func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer) {
-	var ctrlCount int
+	var ctrlCtxFnCalled bool
 
 	d.Control = func(network, address string, c syscall.RawConn) error {
-		ctrlCount++
+		t.Error("Dialer.Control called")
 		return nil
 	}
 
 	d.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) error {
-		ctrlCount++
+		ctrlCtxFnCalled = true
 		return nil
 	}
 
@@ -194,8 +194,8 @@ func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer) {
 	}
 	defer c.Close()
 
-	if ctrlCount != 1 {
-		t.Errorf("Dialer control function called %d times, expected 1", ctrlCount)
+	if !ctrlCtxFnCalled {
+		t.Error("Dialer.ControlContext not called")
 	}
 }
 
