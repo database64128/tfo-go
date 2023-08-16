@@ -94,6 +94,13 @@ func (d *Dialer) socket(domain int) (fd int, err error) {
 	return
 }
 
+func (d *Dialer) setIPv6Only(fd int, family int, ipv6only bool) error {
+	if d.MultipathTCP() {
+		return nil
+	}
+	return setIPv6Only(fd, family, ipv6only)
+}
+
 const connectSyscallName = "connectx"
 
 func doConnect(fd uintptr, rsa syscall.Sockaddr, b []byte) (int, error) {

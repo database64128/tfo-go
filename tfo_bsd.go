@@ -53,7 +53,7 @@ func (d *Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.
 		return nil, wrapSyscallError("socket", err)
 	}
 
-	if err = setIPv6Only(fd, family, ipv6only); err != nil {
+	if err = d.setIPv6Only(fd, family, ipv6only); err != nil {
 		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt(IPV6_V6ONLY)", err)
 	}
