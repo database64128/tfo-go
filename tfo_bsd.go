@@ -55,17 +55,17 @@ func (d *Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.
 
 	if err = setIPv6Only(fd, family, ipv6only); err != nil {
 		unix.Close(fd)
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(IPV6_V6ONLY)", err)
 	}
 
 	if err = setNoDelay(fd, 1); err != nil {
 		unix.Close(fd)
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(TCP_NODELAY)", err)
 	}
 
 	if err = SetTFODialer(uintptr(fd)); err != nil {
 		unix.Close(fd)
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN{_FORCE_ENABLE})", err)
 	}
 
 	f := os.NewFile(uintptr(fd), "")

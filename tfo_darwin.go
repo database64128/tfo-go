@@ -40,7 +40,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 		}
 
 		if err != nil {
-			return wrapSyscallError("setsockopt", err)
+			return wrapSyscallError("setsockopt(TCP_FASTOPEN_FORCE_ENABLE)", err)
 		}
 		return nil
 	}
@@ -65,7 +65,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 
 	if err != nil {
 		ln.Close()
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
 	}
 
 	return ln, nil

@@ -44,7 +44,7 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 		}
 
 		if err != nil {
-			return wrapSyscallError("setsockopt", err)
+			return wrapSyscallError("setsockopt(TCP_FASTOPEN_CONNECT)", err)
 		}
 		return nil
 	}

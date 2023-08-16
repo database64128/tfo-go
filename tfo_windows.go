@@ -244,17 +244,17 @@ func (*Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.TC
 
 	if err = setIPv6Only(handle, family, ipv6only); err != nil {
 		tc.Close()
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(IPV6_V6ONLY)", err)
 	}
 
 	if err = setNoDelay(handle, 1); err != nil {
 		tc.Close()
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(TCP_NODELAY)", err)
 	}
 
 	if err = setTFO(handle); err != nil {
 		tc.Close()
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
 	}
 
 	if ctrlCtxFn != nil {
@@ -311,7 +311,7 @@ func (*Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.TC
 
 	if err = setUpdateConnectContext(handle); err != nil {
 		tc.Close()
-		return nil, wrapSyscallError("setsockopt", err)
+		return nil, wrapSyscallError("setsockopt(SO_UPDATE_CONNECT_CONTEXT)", err)
 	}
 
 	lsa, err = syscall.Getsockname(syscall.Handle(handle))
