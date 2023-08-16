@@ -202,7 +202,7 @@ func (c *rawConn) Write(f func(uintptr) bool) error {
 	return syscall.EWINDOWS
 }
 
-func dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+func (*Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
 	ltsa := (*tcpSockaddr)(laddr)
 	rtsa := (*tcpSockaddr)(raddr)
 	family, ipv6only := favoriteAddrFamily(network, ltsa, rtsa, "dial")

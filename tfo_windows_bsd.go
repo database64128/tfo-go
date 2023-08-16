@@ -317,7 +317,7 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			}
 		}
 
-		c, err := dialTFO(dialCtx, network, laddr, ra, b, ctrlCtxFn)
+		c, err := d.dialTFO(dialCtx, network, laddr, ra, b, ctrlCtxFn)
 		if err == nil {
 			return c, nil
 		}
@@ -407,7 +407,9 @@ func partialDeadline(now, deadline time.Time, addrsRemaining int) (time.Time, er
 }
 
 func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
-	c, err := dialTFO(context.Background(), network, laddr, raddr, b, nil)
+	var d Dialer
+	d.SetMultipathTCP(false) // Align with [net.DialTCP].
+	c, err := d.dialTFO(context.Background(), network, laddr, raddr, b, nil)
 	if err != nil {
 		return nil, err
 	}

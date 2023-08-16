@@ -75,7 +75,12 @@ func SetTFODialer(fd uintptr) error {
 	return setTFOForceEnable(fd)
 }
 
-func socket(domain int) (fd int, err error) {
+const AF_MULTIPATH = 39
+
+func (d *Dialer) socket(domain int) (fd int, err error) {
+	if d.MultipathTCP() {
+		domain = AF_MULTIPATH
+	}
 	fd, err = unix.Socket(domain, unix.SOCK_STREAM, unix.IPPROTO_TCP)
 	if err != nil {
 		return
