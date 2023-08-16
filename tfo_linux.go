@@ -16,7 +16,13 @@ import (
 const TCPFastopenQueueLength = 4096
 
 func SetTFOListener(fd uintptr) error {
-	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN, TCPFastopenQueueLength)
+	return SetTFOListenerWithBacklog(fd, TCPFastopenQueueLength)
+}
+
+// SetTFOListenerWithBacklog enables TCP Fast Open on the listener with the given backlog.
+// If the platform does not support custom backlog, the specified backlog is ignored.
+func SetTFOListenerWithBacklog(fd uintptr, backlog int) error {
+	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN, backlog)
 }
 
 func SetTFODialer(fd uintptr) error {

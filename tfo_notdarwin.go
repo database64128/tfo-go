@@ -8,8 +8,16 @@ import (
 	"syscall"
 )
 
+// defaultBacklog is Go std's listen(2) backlog.
+// We use this as the default TFO backlog.
+const defaultBacklog = 4096
+
 func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
 	ctrlFn := lc.Control
+	backlog := lc.Backlog
+	if backlog == 0 {
+		backlog = defaultBacklog
+	}
 	llc := *lc
 	llc.Control = func(network, address string, c syscall.RawConn) (err error) {
 		if ctrlFn != nil {
@@ -19,7 +27,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 		}
 
 		if cerr := c.Control(func(fd uintptr) {
-			err = SetTFOListener(fd)
+			err = SetTFOListenerWithBacklog(fd, backlog)
 		}); cerr != nil {
 			return cerr
 		}

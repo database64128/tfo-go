@@ -34,12 +34,17 @@ func (PlatformUnsupportedError) Is(target error) bool {
 	return target == errors.ErrUnsupported
 }
 
-// ListenConfig wraps [net.ListenConfig] with an additional option that allows you to disable TFO.
+// ListenConfig wraps [net.ListenConfig] with TFO-related options.
 type ListenConfig struct {
 	net.ListenConfig
 
+	// Backlog specifies the maximum number of pending TFO connections on supported platforms.
+	// If the value is 0, Go std's listen(2) backlog (4096, as of the current version) is used.
+	// If the value is negative, TFO is disabled.
+	Backlog int
+
 	// DisableTFO controls whether TCP Fast Open is disabled when the Listen method is called.
-	// TFO is enabled by default.
+	// TFO is enabled by default, unless [ListenConfig.Backlog] is negative.
 	// Set to true to disable TFO and it will behave exactly the same as [net.ListenConfig].
 	DisableTFO bool
 }
@@ -47,7 +52,7 @@ type ListenConfig struct {
 // Listen is like [net.ListenConfig.Listen] but enables TFO whenever possible,
 // unless [ListenConfig.DisableTFO] is set to true.
 func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
-	if lc.DisableTFO || network != "tcp" && network != "tcp4" && network != "tcp6" {
+	if lc.Backlog < 0 || lc.DisableTFO || network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return lc.ListenConfig.Listen(ctx, network, address)
 	}
 	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_notdarwin.go
