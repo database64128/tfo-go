@@ -24,15 +24,17 @@ func SetTFODialer(fd uintptr) error {
 }
 
 func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+	ctrlCtxFn := d.ControlContext
+	ctrlFn := d.Control
 	ld := *d
 	ld.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) (err error) {
 		switch {
-		case d.ControlContext != nil:
-			if err = d.ControlContext(ctx, network, address, c); err != nil {
+		case ctrlCtxFn != nil:
+			if err = ctrlCtxFn(ctx, network, address, c); err != nil {
 				return err
 			}
-		case d.Control != nil:
-			if err = d.Control(network, address, c); err != nil {
+		case ctrlFn != nil:
+			if err = ctrlFn(network, address, c); err != nil {
 				return err
 			}
 		}
