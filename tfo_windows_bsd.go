@@ -102,7 +102,7 @@ func (a *tcpSockaddr) toLocal(net string) sockaddr {
 //go:linkname favoriteAddrFamily net.favoriteAddrFamily
 func favoriteAddrFamily(network string, laddr, raddr sockaddr, mode string) (family int, ipv6only bool)
 
-func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
 	if ctx == nil {
 		panic("nil context")
 	}
@@ -317,7 +317,7 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			}
 		}
 
-		c, err := d.dialTFO(dialCtx, network, laddr, ra, b, ctrlCtxFn)
+		c, err := d.dialSingle(dialCtx, network, laddr, ra, b, ctrlCtxFn)
 		if err == nil {
 			return c, nil
 		}
@@ -409,7 +409,7 @@ func partialDeadline(now, deadline time.Time, addrsRemaining int) (time.Time, er
 func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	var d Dialer
 	d.SetMultipathTCP(false) // Align with [net.DialTCP].
-	c, err := d.dialTFO(context.Background(), network, laddr, raddr, b, nil)
+	c, err := d.dialSingle(context.Background(), network, laddr, raddr, b, nil)
 	if err != nil {
 		return nil, err
 	}

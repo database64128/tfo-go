@@ -115,7 +115,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string, b []b
 		}
 		return c, nil
 	}
-	return d.dialTFOContext(ctx, network, address, b) // tfo_linux.go, tfo_windows_bsd.go, tfo_fallback.go
+	return d.dialTFO(ctx, network, address, b) // tfo_linux.go, tfo_windows_bsd.go, tfo_fallback.go
 }
 
 // Dial is like [net.Dialer.Dial] but enables TFO whenever possible,

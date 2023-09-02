@@ -7,7 +7,7 @@ import (
 	"net"
 )
 
-func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
 	return nil, ErrPlatformUnsupported
 }
 

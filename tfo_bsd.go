@@ -33,7 +33,7 @@ func ctrlNetwork(network string, family int) string {
 	return "tcp6"
 }
 
-func (d *Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
 	ltsa := (*tcpSockaddr)(laddr)
 	rtsa := (*tcpSockaddr)(raddr)
 	family, ipv6only := favoriteAddrFamily(network, ltsa, rtsa, "dial")

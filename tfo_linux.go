@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
 	ctrlCtxFn := d.ControlContext
 	ctrlFn := d.Control
 	ld := *d
@@ -79,5 +79,5 @@ func (d *Dialer) dialTFOContext(ctx context.Context, network, address string, b 
 
 func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	d := Dialer{Dialer: net.Dialer{LocalAddr: laddr}}
-	return d.dialTFOContext(context.Background(), network, raddr.String(), b)
+	return d.dialTFO(context.Background(), network, raddr.String(), b)
 }
