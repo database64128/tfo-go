@@ -63,7 +63,7 @@ func (d *Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.
 		return nil, wrapSyscallError("setsockopt(TCP_NODELAY)", err)
 	}
 
-	if err = SetTFODialer(uintptr(fd)); err != nil {
+	if err = setTFODialer(uintptr(fd)); err != nil {
 		unix.Close(fd)
 		return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN{_FORCE_ENABLE})", err)
 	}

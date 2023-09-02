@@ -50,7 +50,7 @@ type ListenConfig struct {
 }
 
 // Listen is like [net.ListenConfig.Listen] but enables TFO whenever possible,
-// unless [ListenConfig.DisableTFO] is set to true.
+// unless [ListenConfig.Backlog] is negative or [ListenConfig.DisableTFO] is set to true.
 func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
 	if lc.Backlog < 0 || lc.DisableTFO || network != "tcp" && network != "tcp4" && network != "tcp6" {
 		return lc.ListenConfig.Listen(ctx, network, address)

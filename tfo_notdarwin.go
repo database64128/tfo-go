@@ -27,7 +27,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 		}
 
 		if cerr := c.Control(func(fd uintptr) {
-			err = SetTFOListenerWithBacklog(fd, backlog)
+			err = setTFOListenerWithBacklog(fd, backlog)
 		}); cerr != nil {
 			return cerr
 		}

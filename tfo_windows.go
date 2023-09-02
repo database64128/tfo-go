@@ -14,20 +14,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const TCP_FASTOPEN = 15
-
-func SetTFOListener(fd uintptr) error {
-	return setTFO(windows.Handle(fd))
-}
-
-func SetTFODialer(fd uintptr) error {
-	return setTFO(windows.Handle(fd))
-}
-
-func setTFO(fd windows.Handle) error {
-	return windows.SetsockoptInt(fd, windows.IPPROTO_TCP, TCP_FASTOPEN, 1)
-}
-
 func setIPv6Only(fd windows.Handle, family int, ipv6only bool) error {
 	if family == windows.AF_INET6 {
 		// Allow both IP versions even if the OS default
@@ -252,7 +238,7 @@ func (*Dialer) dialTFO(ctx context.Context, network string, laddr, raddr *net.TC
 		return nil, wrapSyscallError("setsockopt(TCP_NODELAY)", err)
 	}
 
-	if err = setTFO(handle); err != nil {
+	if err = setTFODialer(uintptr(handle)); err != nil {
 		tc.Close()
 		return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
 	}

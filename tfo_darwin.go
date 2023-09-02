@@ -8,17 +8,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const TCP_FASTOPEN_FORCE_ENABLE = 0x218
-
-// setTFOForceEnable disables the absolutely brutal TFO backoff mechanism.
-func setTFOForceEnable(fd uintptr) error {
-	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, TCP_FASTOPEN_FORCE_ENABLE, 1)
-}
-
-func SetTFOListener(fd uintptr) error {
-	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN, 1)
-}
-
 func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
 	// When setting TCP_FASTOPEN_FORCE_ENABLE, the socket must be in the TCPS_CLOSED state.
 	// This means setting it before listen().
@@ -59,7 +48,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 	}
 
 	if cerr := rawConn.Control(func(fd uintptr) {
-		err = SetTFOListener(fd)
+		err = setTFOListener(fd)
 	}); cerr != nil {
 		ln.Close()
 		return nil, cerr
@@ -71,10 +60,6 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 	}
 
 	return ln, nil
-}
-
-func SetTFODialer(fd uintptr) error {
-	return setTFOForceEnable(fd)
 }
 
 const AF_MULTIPATH = 39
