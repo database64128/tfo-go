@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"syscall"
-	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -97,41 +96,11 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		}
 	}
 
-	deadline, hasDeadline := ctx.Deadline()
-	if hasDeadline {
-		f.SetWriteDeadline(deadline)
-		defer f.SetWriteDeadline(time.Time{})
-	}
-
-	var (
-		done         chan struct{}
-		interruptRes chan error
-	)
-
-	ctxDone := ctx.Done()
-	if ctxDone != nil {
-		done = make(chan struct{})
-		interruptRes = make(chan error)
-
-		go func() {
-			select {
-			case <-ctxDone:
-				f.SetWriteDeadline(aLongTimeAgo)
-				interruptRes <- ctx.Err()
-			case <-done:
-				interruptRes <- nil
-			}
-		}()
-	}
-
-	n, err := connect(rawConn, rsa, b)
-	if ctxDone != nil {
-		done <- struct{}{}
-		if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
-			return nil, ctxErr
-		}
-	}
-	if err != nil {
+	var n int
+	if err = connWriteFunc(ctx, f, func(f *os.File) (err error) {
+		n, err = connect(rawConn, rsa, b)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 
@@ -139,41 +108,15 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	if err != nil {
 		return nil, err
 	}
-	tc := c.(*net.TCPConn)
-
-	if hasDeadline {
-		tc.SetDeadline(deadline)
-		defer tc.SetDeadline(time.Time{})
-	}
-
-	if ctxDone != nil {
-		defer func() {
-			close(done)
-			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
-				err = ctxErr
-				tc.Close()
-			}
-		}()
-
-		go func() {
-			select {
-			case <-ctxDone:
-				tc.SetWriteDeadline(aLongTimeAgo)
-				interruptRes <- ctx.Err()
-			case <-done:
-				interruptRes <- nil
-			}
-		}()
-	}
 
 	if n < len(b) {
-		if _, err = tc.Write(b[n:]); err != nil {
-			tc.Close()
+		if err = netConnWriteBytes(ctx, c, b[n:]); err != nil {
+			c.Close()
 			return nil, err
 		}
 	}
 
-	return tc, err
+	return c.(*net.TCPConn), err
 }
 
 func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, err error) {

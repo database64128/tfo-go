@@ -8,7 +8,6 @@ import (
 	"os"
 	"sync"
 	"syscall"
-	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -260,66 +259,39 @@ func (*Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net
 		return nil, err
 	}
 
-	if deadline, ok := ctx.Deadline(); ok {
-		tc.SetWriteDeadline(deadline)
-		defer tc.SetWriteDeadline(time.Time{})
-	}
-
-	ctxDone := ctx.Done()
-	if ctxDone != nil {
-		done := make(chan struct{})
-		interruptRes := make(chan error)
-
-		defer func() {
-			close(done)
-			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
-				err = ctxErr
-				tc.Close()
-			}
-		}()
-
-		go func() {
-			select {
-			case <-ctxDone:
-				tc.SetWriteDeadline(aLongTimeAgo)
-				interruptRes <- ctx.Err()
-			case <-done:
-				interruptRes <- nil
-			}
-		}()
-	}
-
-	n, err := fd.pfd.ConnectEx(rsa, b)
-	if err != nil {
-		tc.Close()
-		return nil, os.NewSyscallError("connectex", err)
-	}
-
-	if err = setUpdateConnectContext(handle); err != nil {
-		tc.Close()
-		return nil, wrapSyscallError("setsockopt(SO_UPDATE_CONNECT_CONTEXT)", err)
-	}
-
-	lsa, err = syscall.Getsockname(syscall.Handle(handle))
-	if err != nil {
-		tc.Close()
-		return nil, wrapSyscallError("getsockname", err)
-	}
-	fd.laddr = sockaddrToTCP(lsa)
-
-	rsa, err = syscall.Getpeername(syscall.Handle(handle))
-	if err != nil {
-		tc.Close()
-		return nil, wrapSyscallError("getpeername", err)
-	}
-	fd.raddr = sockaddrToTCP(rsa)
-
-	if n < len(b) {
-		if _, err = tc.Write(b[n:]); err != nil {
-			tc.Close()
-			return nil, err
+	if err = connWriteFunc(ctx, tc, func(c *net.TCPConn) error {
+		n, err := fd.pfd.ConnectEx(rsa, b)
+		if err != nil {
+			return os.NewSyscallError("connectex", err)
 		}
+
+		if err = setUpdateConnectContext(handle); err != nil {
+			return wrapSyscallError("setsockopt(SO_UPDATE_CONNECT_CONTEXT)", err)
+		}
+
+		lsa, err = syscall.Getsockname(syscall.Handle(handle))
+		if err != nil {
+			return wrapSyscallError("getsockname", err)
+		}
+		fd.laddr = sockaddrToTCP(lsa)
+
+		rsa, err = syscall.Getpeername(syscall.Handle(handle))
+		if err != nil {
+			return wrapSyscallError("getpeername", err)
+		}
+		fd.raddr = sockaddrToTCP(rsa)
+
+		if n < len(b) {
+			if _, err = tc.Write(b[n:]); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		tc.Close()
+		return nil, err
 	}
 
-	return tc, err
+	return tc, nil
 }

@@ -109,7 +109,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string, b []b
 		if err != nil {
 			return nil, err
 		}
-		if _, err = c.Write(b); err != nil {
+		if err = netConnWriteBytes(ctx, c, b); err != nil {
 			c.Close()
 			return nil, err
 		}
@@ -167,4 +167,46 @@ func wrapSyscallError(name string, err error) error {
 		err = os.NewSyscallError(name, err)
 	}
 	return err
+}
+
+// writeDeadliner allows cancellation of ongoing write operations.
+type writeDeadliner interface {
+	SetWriteDeadline(t time.Time) error
+}
+
+// connWriteFunc invokes the given function on a [writeDeadliner] to execute any arbitrary write operation.
+// If the given context can be canceled, it will spin up an interruptor goroutine to cancel the write operation
+// when the context is canceled.
+func connWriteFunc[C writeDeadliner](ctx context.Context, c C, fn func(C) error) (err error) {
+	if ctxDone := ctx.Done(); ctxDone != nil {
+		done := make(chan struct{})
+		interruptRes := make(chan error)
+
+		defer func() {
+			close(done)
+			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
+				err = ctxErr
+			}
+		}()
+
+		go func() {
+			select {
+			case <-ctxDone:
+				c.SetWriteDeadline(aLongTimeAgo)
+				interruptRes <- ctx.Err()
+			case <-done:
+				interruptRes <- nil
+			}
+		}()
+	}
+
+	return fn(c)
+}
+
+// netConnWriteBytes is a convenience wrapper around [connWriteFunc] for writing bytes to a [net.Conn].
+func netConnWriteBytes(ctx context.Context, c net.Conn, b []byte) error {
+	return connWriteFunc(ctx, c, func(c net.Conn) error {
+		_, err := c.Write(b)
+		return err
+	})
 }

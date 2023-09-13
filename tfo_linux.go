@@ -4,7 +4,6 @@ import (
 	"context"
 	"net"
 	"syscall"
-	"time"
 )
 
 func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
@@ -39,42 +38,11 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 	if err != nil {
 		return nil, err
 	}
-	c := nc.(*net.TCPConn)
-
-	if deadline, ok := ctx.Deadline(); ok {
-		c.SetWriteDeadline(deadline)
-		defer c.SetWriteDeadline(time.Time{})
-	}
-
-	ctxDone := ctx.Done()
-	if ctxDone != nil {
-		done := make(chan struct{})
-		interruptRes := make(chan error)
-
-		defer func() {
-			close(done)
-			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
-				err = ctxErr
-				c.Close()
-			}
-		}()
-
-		go func() {
-			select {
-			case <-ctxDone:
-				c.SetWriteDeadline(aLongTimeAgo)
-				interruptRes <- ctx.Err()
-			case <-done:
-				interruptRes <- nil
-			}
-		}()
-	}
-
-	if _, err = c.Write(b); err != nil {
-		c.Close()
+	if err = netConnWriteBytes(ctx, nc, b); err != nil {
+		nc.Close()
 		return nil, err
 	}
-	return c, err
+	return nc.(*net.TCPConn), nil
 }
 
 func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
