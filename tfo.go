@@ -169,6 +169,9 @@ func wrapSyscallError(name string, err error) error {
 	return err
 }
 
+// aLongTimeAgo is a non-zero time, far in the past, used for immediate deadlines.
+var aLongTimeAgo = time.Unix(0, 0)
+
 // writeDeadliner allows cancellation of ongoing write operations.
 type writeDeadliner interface {
 	SetWriteDeadline(t time.Time) error
