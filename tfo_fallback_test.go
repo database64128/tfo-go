@@ -7,9 +7,18 @@ import (
 	"testing"
 )
 
-// fallbackCases references cases that have TFO disabled.
-// The index must be updated if [cases] is updated.
-var fallbackCases = cases[3:]
+// tfoDisabledCases references cases that have TFO disabled.
+var tfoDisabledCases []testCase
+
+func init() {
+	tfoDisabledCases = make([]testCase, 0, len(cases)/2)
+	for _, c := range cases {
+		if !c.listenConfig.tfoDisabled() || !c.dialer.DisableTFO {
+			continue
+		}
+		tfoDisabledCases = append(tfoDisabledCases, c)
+	}
+}
 
 func TestListenTFO(t *testing.T) {
 	ln, err := Listen("tcp", "")
@@ -51,7 +60,7 @@ func TestDialTFO(t *testing.T) {
 }
 
 func TestListenCtrlFn(t *testing.T) {
-	for _, c := range fallbackCases {
+	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
 			testListenCtrlFn(t, c.listenConfig)
 		})
@@ -59,7 +68,7 @@ func TestListenCtrlFn(t *testing.T) {
 }
 
 func TestDialCtrlFn(t *testing.T) {
-	for _, c := range fallbackCases {
+	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
 			testDialCtrlFn(t, c.dialer)
 			testDialCtrlCtxFn(t, c.dialer)
@@ -69,7 +78,7 @@ func TestDialCtrlFn(t *testing.T) {
 }
 
 func TestAddrFunctions(t *testing.T) {
-	for _, c := range fallbackCases {
+	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
 			testAddrFunctions(t, c.listenConfig, c.dialer)
 		})
@@ -77,7 +86,7 @@ func TestAddrFunctions(t *testing.T) {
 }
 
 func TestClientWriteReadServerReadWrite(t *testing.T) {
-	for _, c := range fallbackCases {
+	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
 			testClientWriteReadServerReadWrite(t, c.listenConfig, c.dialer)
 		})
@@ -85,7 +94,7 @@ func TestClientWriteReadServerReadWrite(t *testing.T) {
 }
 
 func TestServerWriteReadClientReadWrite(t *testing.T) {
-	for _, c := range fallbackCases {
+	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
 			testServerWriteReadClientReadWrite(t, c.listenConfig, c.dialer)
 		})
@@ -93,7 +102,7 @@ func TestServerWriteReadClientReadWrite(t *testing.T) {
 }
 
 func TestClientServerReadFrom(t *testing.T) {
-	for _, c := range fallbackCases {
+	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
 			testClientServerReadFrom(t, c.listenConfig, c.dialer)
 		})
@@ -101,7 +110,7 @@ func TestClientServerReadFrom(t *testing.T) {
 }
 
 func TestSetDeadline(t *testing.T) {
-	for _, c := range fallbackCases {
+	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
 			testSetDeadline(t, c.listenConfig, c.dialer)
 		})

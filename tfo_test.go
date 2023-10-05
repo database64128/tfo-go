@@ -12,31 +12,95 @@ import (
 	"time"
 )
 
-// cases is a list of test cases for the [ListenConfig] and [Dialer] structs.
-//
-// [fallbackCases] in tfo_fallback_test.go must be updated if this list is updated.
-var cases = []struct {
+type mptcpStatus uint8
+
+const (
+	mptcpUseDefault mptcpStatus = iota
+	mptcpEnabled
+	mptcpDisabled
+)
+
+var listenConfigCases = []struct {
+	name         string
+	listenConfig ListenConfig
+	mptcp        mptcpStatus
+}{
+	{"TFO", ListenConfig{}, mptcpUseDefault},
+	{"TFO+MPTCPEnabled", ListenConfig{}, mptcpEnabled},
+	{"TFO+MPTCPDisabled", ListenConfig{}, mptcpDisabled},
+	{"TFO+Backlog1024", ListenConfig{Backlog: 1024}, mptcpUseDefault},
+	{"TFO+Backlog1024+MPTCPEnabled", ListenConfig{Backlog: 1024}, mptcpEnabled},
+	{"TFO+Backlog1024+MPTCPDisabled", ListenConfig{Backlog: 1024}, mptcpDisabled},
+	{"TFO+Backlog-1", ListenConfig{Backlog: -1}, mptcpUseDefault},
+	{"TFO+Backlog-1+MPTCPEnabled", ListenConfig{Backlog: -1}, mptcpEnabled},
+	{"TFO+Backlog-1+MPTCPDisabled", ListenConfig{Backlog: -1}, mptcpDisabled},
+	{"NoTFO", ListenConfig{DisableTFO: true}, mptcpUseDefault},
+	{"NoTFO+MPTCPEnabled", ListenConfig{DisableTFO: true}, mptcpEnabled},
+	{"NoTFO+MPTCPDisabled", ListenConfig{DisableTFO: true}, mptcpDisabled},
+}
+
+var dialerCases = []struct {
+	name   string
+	dialer Dialer
+	mptcp  mptcpStatus
+}{
+	{"TFO", Dialer{}, mptcpUseDefault},
+	{"TFO+MPTCPEnabled", Dialer{}, mptcpEnabled},
+	{"TFO+MPTCPDisabled", Dialer{}, mptcpDisabled},
+	{"NoTFO", Dialer{DisableTFO: true}, mptcpUseDefault},
+	{"NoTFO+MPTCPEnabled", Dialer{DisableTFO: true}, mptcpEnabled},
+	{"NoTFO+MPTCPDisabled", Dialer{DisableTFO: true}, mptcpDisabled},
+}
+
+type testCase struct {
 	name         string
 	listenConfig ListenConfig
 	dialer       Dialer
-}{
-	{"TFO", ListenConfig{}, Dialer{}},
-	{"TFO/MPTCPEnabled", ListenConfig{}, Dialer{}},
-	{"TFO/MPTCPDisabled", ListenConfig{}, Dialer{}},
-	{"NoTFO", ListenConfig{DisableTFO: true}, Dialer{DisableTFO: true}},
-	{"NoTFO/MPTCPEnabled", ListenConfig{DisableTFO: true}, Dialer{DisableTFO: true}},
-	{"NoTFO/MPTCPDisabled", ListenConfig{DisableTFO: true}, Dialer{DisableTFO: true}},
 }
 
+// cases is a list of [ListenConfig] and [Dialer] combinations to test.
+var cases []testCase
+
 func init() {
-	cases[1].listenConfig.SetMultipathTCP(true)
-	cases[1].dialer.SetMultipathTCP(true)
-	cases[2].listenConfig.SetMultipathTCP(false)
-	cases[2].dialer.SetMultipathTCP(false)
-	cases[4].listenConfig.SetMultipathTCP(true)
-	cases[4].dialer.SetMultipathTCP(true)
-	cases[5].listenConfig.SetMultipathTCP(false)
-	cases[5].dialer.SetMultipathTCP(false)
+	// Initialize [listenConfigCases].
+	for i := range listenConfigCases {
+		c := &listenConfigCases[i]
+		switch c.mptcp {
+		case mptcpUseDefault:
+		case mptcpEnabled:
+			c.listenConfig.SetMultipathTCP(true)
+		case mptcpDisabled:
+			c.listenConfig.SetMultipathTCP(false)
+		default:
+			panic("unreachable")
+		}
+	}
+
+	// Initialize [dialerCases].
+	for i := range dialerCases {
+		c := &dialerCases[i]
+		switch c.mptcp {
+		case mptcpUseDefault:
+		case mptcpEnabled:
+			c.dialer.SetMultipathTCP(true)
+		case mptcpDisabled:
+			c.dialer.SetMultipathTCP(false)
+		default:
+			panic("unreachable")
+		}
+	}
+
+	// Generate [cases].
+	cases = make([]testCase, 0, len(listenConfigCases)*len(dialerCases))
+	for _, lc := range listenConfigCases {
+		for _, d := range dialerCases {
+			cases = append(cases, testCase{
+				name:         lc.name + "/" + d.name,
+				listenConfig: lc.listenConfig,
+				dialer:       d.dialer,
+			})
+		}
+	}
 }
 
 var (
