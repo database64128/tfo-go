@@ -322,7 +322,7 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			return c, nil
 		}
 		if firstErr == nil {
-			firstErr = err
+			firstErr = &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: err}
 		}
 	}
 
@@ -411,7 +411,7 @@ func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPC
 	d.SetMultipathTCP(false) // Align with [net.DialTCP].
 	c, err := d.dialSingle(context.Background(), network, laddr, raddr, b, nil)
 	if err != nil {
-		return nil, err
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
 	}
 	c.SetKeepAlive(true)
 	c.SetKeepAlivePeriod(defaultTCPKeepAlive)
