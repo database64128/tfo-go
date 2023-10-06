@@ -3,78 +3,11 @@
 package tfo
 
 import (
-	"context"
 	"net"
 	"testing"
 )
 
-const discardTCPServerDisableTFO = false
-
-func TestListenCtrlFn(t *testing.T) {
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testListenCtrlFn(t, c.listenConfig)
-		})
-	}
-}
-
-func TestDialCtrlFn(t *testing.T) {
-	s, err := newDiscardTCPServer(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-
-	address := s.Addr().String()
-
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testDialCtrlFn(t, c.dialer, address)
-			testDialCtrlCtxFn(t, c.dialer, address)
-			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer, address)
-		})
-	}
-}
-
-func TestAddrFunctions(t *testing.T) {
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testAddrFunctions(t, c.listenConfig, c.dialer)
-		})
-	}
-}
-
-func TestClientWriteReadServerReadWrite(t *testing.T) {
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testClientWriteReadServerReadWrite(t, c.listenConfig, c.dialer)
-		})
-	}
-}
-
-func TestServerWriteReadClientReadWrite(t *testing.T) {
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testServerWriteReadClientReadWrite(t, c.listenConfig, c.dialer)
-		})
-	}
-}
-
-func TestClientServerReadFrom(t *testing.T) {
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testClientServerReadFrom(t, c.listenConfig, c.dialer)
-		})
-	}
-}
-
-func TestSetDeadline(t *testing.T) {
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testSetDeadline(t, c.listenConfig, c.dialer)
-		})
-	}
-}
+const comptimeNoTFO = false
 
 func testClientWriteReadServerReadWriteTCPAddr(listenTCPAddr, dialLocalTCPAddr *net.TCPAddr, t *testing.T) {
 	t.Logf("c->s payload: %v", helloworld)

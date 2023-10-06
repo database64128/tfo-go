@@ -94,7 +94,13 @@ func init() {
 	// Generate [cases].
 	cases = make([]testCase, 0, len(listenConfigCases)*len(dialerCases))
 	for _, lc := range listenConfigCases {
+		if comptimeNoTFO && !lc.listenConfig.tfoDisabled() {
+			continue
+		}
 		for _, d := range dialerCases {
+			if comptimeNoTFO && !d.dialer.DisableTFO {
+				continue
+			}
 			cases = append(cases, testCase{
 				name:         lc.name + "/" + d.name,
 				listenConfig: lc.listenConfig,
@@ -112,7 +118,7 @@ type discardTCPServer struct {
 
 // newDiscardTCPServer creates a new [discardTCPServer] that listens on a random port.
 func newDiscardTCPServer(ctx context.Context) (*discardTCPServer, error) {
-	lc := ListenConfig{DisableTFO: discardTCPServerDisableTFO}
+	lc := ListenConfig{DisableTFO: comptimeNoTFO}
 	ln, err := lc.Listen(ctx, "tcp", "[::1]:")
 	if err != nil {
 		return nil, err
@@ -205,6 +211,86 @@ func TestListenDialUDP(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			testListenDialUDP(t, c.listenConfig, c.dialer)
+		})
+	}
+}
+
+// TestListenCtrlFn ensures that the user-provided [ListenConfig.Control] function
+// is called when [ListenConfig.Listen] is called.
+func TestListenCtrlFn(t *testing.T) {
+	for _, c := range listenConfigCases {
+		t.Run(c.name, func(t *testing.T) {
+			testListenCtrlFn(t, c.listenConfig)
+		})
+	}
+}
+
+// TestDialCtrlFn ensures that [Dialer]'s user-provided control functions
+// are used in the same way as [net.Dialer].
+func TestDialCtrlFn(t *testing.T) {
+	s, err := newDiscardTCPServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	address := s.Addr().String()
+
+	for _, c := range dialerCases {
+		t.Run(c.name, func(t *testing.T) {
+			testDialCtrlFn(t, c.dialer, address)
+			testDialCtrlCtxFn(t, c.dialer, address)
+			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer, address)
+		})
+	}
+}
+
+// TestAddrFunctions ensures that the address methods on [*net.TCPListener] and
+// [*net.TCPConn] return the correct values.
+func TestAddrFunctions(t *testing.T) {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testAddrFunctions(t, c.listenConfig, c.dialer)
+		})
+	}
+}
+
+// TestClientWriteReadServerReadWrite ensures that a client can write to a server,
+// the server can read from the client, and the server can write to the client.
+func TestClientWriteReadServerReadWrite(t *testing.T) {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testClientWriteReadServerReadWrite(t, c.listenConfig, c.dialer)
+		})
+	}
+}
+
+// TestServerWriteReadClientReadWrite ensures that a server can write to a client,
+// the client can read from the server, and the client can write to the server.
+func TestServerWriteReadClientReadWrite(t *testing.T) {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testServerWriteReadClientReadWrite(t, c.listenConfig, c.dialer)
+		})
+	}
+}
+
+// TestClientServerReadFrom ensures that the ReadFrom method
+// on accepted and dialed connections works as expected.
+func TestClientServerReadFrom(t *testing.T) {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testClientServerReadFrom(t, c.listenConfig, c.dialer)
+		})
+	}
+}
+
+// TestSetDeadline ensures that the SetDeadline, SetReadDeadline, and
+// SetWriteDeadline methods on accepted and dialed connections work as expected.
+func TestSetDeadline(t *testing.T) {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testSetDeadline(t, c.listenConfig, c.dialer)
 		})
 	}
 }
