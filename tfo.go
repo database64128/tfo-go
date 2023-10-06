@@ -14,6 +14,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -34,6 +35,8 @@ func (PlatformUnsupportedError) Is(target error) bool {
 	return target == errors.ErrUnsupported
 }
 
+var runtimeListenNoTFO atomic.Bool
+
 // ListenConfig wraps [net.ListenConfig] with TFO-related options.
 type ListenConfig struct {
 	net.ListenConfig
@@ -47,16 +50,24 @@ type ListenConfig struct {
 	// TFO is enabled by default, unless [ListenConfig.Backlog] is negative.
 	// Set to true to disable TFO and it will behave exactly the same as [net.ListenConfig].
 	DisableTFO bool
+
+	// Fallback controls whether to proceed without TFO when TFO is enabled but not supported
+	// on the system.
+	Fallback bool
 }
 
 func (lc *ListenConfig) tfoDisabled() bool {
 	return lc.Backlog < 0 || lc.DisableTFO
 }
 
+func (lc *ListenConfig) tfoNeedsFallback() bool {
+	return lc.Fallback && (comptimeNoTFO || runtimeListenNoTFO.Load())
+}
+
 // Listen is like [net.ListenConfig.Listen] but enables TFO whenever possible,
 // unless [ListenConfig.Backlog] is negative or [ListenConfig.DisableTFO] is set to true.
 func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
-	if lc.tfoDisabled() || !networkIsTCP(network) {
+	if lc.tfoDisabled() || !networkIsTCP(network) || lc.tfoNeedsFallback() {
 		return lc.ListenConfig.Listen(ctx, network, address)
 	}
 	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_fallback.go, tfo_listen_generic.go

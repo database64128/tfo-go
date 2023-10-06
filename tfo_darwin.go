@@ -2,6 +2,7 @@ package tfo
 
 import (
 	"context"
+	"errors"
 	"net"
 	"syscall"
 
@@ -31,7 +32,10 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 		}
 
 		if err != nil {
-			return wrapSyscallError("setsockopt(TCP_FASTOPEN_FORCE_ENABLE)", err)
+			if !lc.Fallback || !errors.Is(err, errors.ErrUnsupported) {
+				return wrapSyscallError("setsockopt(TCP_FASTOPEN_FORCE_ENABLE)", err)
+			}
+			runtimeListenNoTFO.Store(true)
 		}
 		return nil
 	}
@@ -56,7 +60,10 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 
 	if err != nil {
 		ln.Close()
-		return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
+		if !lc.Fallback || !errors.Is(err, errors.ErrUnsupported) {
+			return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
+		}
+		runtimeListenNoTFO.Store(true)
 	}
 
 	return ln, nil

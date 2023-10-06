@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-const comptimeNoTFO = false
-
 func testClientWriteReadServerReadWriteTCPAddr(listenTCPAddr, dialLocalTCPAddr *net.TCPAddr, t *testing.T) {
 	t.Logf("c->s payload: %v", helloworld)
 	t.Logf("s->c payload: %v", worldhello)

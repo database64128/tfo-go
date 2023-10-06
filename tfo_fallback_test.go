@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-const comptimeNoTFO = true
-
 func TestListenTFO(t *testing.T) {
 	ln, err := Listen("tcp", "")
 	if ln != nil {
