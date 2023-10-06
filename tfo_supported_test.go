@@ -3,9 +3,12 @@
 package tfo
 
 import (
+	"context"
 	"net"
 	"testing"
 )
+
+const discardTCPServerDisableTFO = false
 
 func TestListenCtrlFn(t *testing.T) {
 	for _, c := range cases {
@@ -16,11 +19,19 @@ func TestListenCtrlFn(t *testing.T) {
 }
 
 func TestDialCtrlFn(t *testing.T) {
+	s, err := newDiscardTCPServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	address := s.Addr().String()
+
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			testDialCtrlFn(t, c.dialer)
-			testDialCtrlCtxFn(t, c.dialer)
-			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer)
+			testDialCtrlFn(t, c.dialer, address)
+			testDialCtrlCtxFn(t, c.dialer, address)
+			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer, address)
 		})
 	}
 }

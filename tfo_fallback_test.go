@@ -3,9 +3,11 @@
 package tfo
 
 import (
-	"net"
+	"context"
 	"testing"
 )
+
+const discardTCPServerDisableTFO = true
 
 // tfoDisabledCases references cases that have TFO disabled.
 var tfoDisabledCases []testCase
@@ -39,7 +41,15 @@ func TestListenTFO(t *testing.T) {
 }
 
 func TestDialTFO(t *testing.T) {
-	c, err := Dial("tcp", "example.com:443", hello)
+	s, err := newDiscardTCPServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	addr := s.Addr()
+
+	c, err := Dial("tcp", addr.String(), hello)
 	if c != nil {
 		t.Error("Expected nil connection")
 	}
@@ -47,10 +57,7 @@ func TestDialTFO(t *testing.T) {
 		t.Errorf("Expected ErrPlatformUnsupported, got %v", err)
 	}
 
-	tc, err := DialTCP("tcp", nil, &net.TCPAddr{
-		IP:   net.IPv4(1, 1, 1, 1),
-		Port: 443,
-	}, hello)
+	tc, err := DialTCP("tcp", nil, addr, hello)
 	if tc != nil {
 		t.Error("Expected nil connection")
 	}
@@ -68,11 +75,19 @@ func TestListenCtrlFn(t *testing.T) {
 }
 
 func TestDialCtrlFn(t *testing.T) {
+	s, err := newDiscardTCPServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	address := s.Addr().String()
+
 	for _, c := range tfoDisabledCases {
 		t.Run(c.name, func(t *testing.T) {
-			testDialCtrlFn(t, c.dialer)
-			testDialCtrlCtxFn(t, c.dialer)
-			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer)
+			testDialCtrlFn(t, c.dialer, address)
+			testDialCtrlCtxFn(t, c.dialer, address)
+			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer, address)
 		})
 	}
 }

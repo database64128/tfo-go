@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -103,6 +104,66 @@ func init() {
 	}
 }
 
+// discardTCPServer is a TCP server that accepts and drains incoming connections.
+type discardTCPServer struct {
+	ln *net.TCPListener
+	wg sync.WaitGroup
+}
+
+// newDiscardTCPServer creates a new [discardTCPServer] that listens on a random port.
+func newDiscardTCPServer(ctx context.Context) (*discardTCPServer, error) {
+	lc := ListenConfig{DisableTFO: discardTCPServerDisableTFO}
+	ln, err := lc.Listen(ctx, "tcp", "[::1]:")
+	if err != nil {
+		return nil, err
+	}
+	return &discardTCPServer{ln: ln.(*net.TCPListener)}, nil
+}
+
+// Addr returns the server's address.
+func (s *discardTCPServer) Addr() *net.TCPAddr {
+	return s.ln.Addr().(*net.TCPAddr)
+}
+
+// Start spins up a new goroutine that accepts and drains incoming connections
+// until [discardTCPServer.Close] is called.
+func (s *discardTCPServer) Start(t *testing.T) {
+	s.wg.Add(1)
+
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			c, err := s.ln.AcceptTCP()
+			if err != nil {
+				if errors.Is(err, os.ErrDeadlineExceeded) {
+					return
+				}
+				t.Error("AcceptTCP:", err)
+				return
+			}
+
+			go func() {
+				defer c.Close()
+
+				n, err := io.Copy(io.Discard, c)
+				if err != nil {
+					t.Error("Copy:", err)
+				}
+				t.Logf("Discarded %d bytes from %s", n, c.RemoteAddr())
+			}()
+		}
+	}()
+}
+
+// Close interrupts all running accept goroutines, waits for them to finish,
+// and closes the listener.
+func (s *discardTCPServer) Close() {
+	s.ln.SetDeadline(aLongTimeAgo)
+	s.wg.Wait()
+	s.ln.Close()
+}
+
 var (
 	hello              = []byte{'h', 'e', 'l', 'l', 'o'}
 	world              = []byte{'w', 'o', 'r', 'l', 'd'}
@@ -189,7 +250,7 @@ func testListenCtrlFn(t *testing.T, lc ListenConfig) {
 	testRawConnControl(t, ln.(syscall.Conn))
 }
 
-func testDialCtrlFn(t *testing.T, d Dialer) {
+func testDialCtrlFn(t *testing.T, d Dialer, address string) {
 	var success bool
 
 	d.Control = func(network, address string, c syscall.RawConn) error {
@@ -198,7 +259,7 @@ func testDialCtrlFn(t *testing.T, d Dialer) {
 		})
 	}
 
-	c, err := d.Dial("tcp", "example.com:443", hello)
+	c, err := d.Dial("tcp", address, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +277,7 @@ const (
 	ctxVal = 128
 )
 
-func testDialCtrlCtxFn(t *testing.T, d Dialer) {
+func testDialCtrlCtxFn(t *testing.T, d Dialer, address string) {
 	var success bool
 
 	d.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) error {
@@ -226,7 +287,7 @@ func testDialCtrlCtxFn(t *testing.T, d Dialer) {
 	}
 
 	ctx := context.WithValue(context.Background(), ctxKey, ctxVal)
-	c, err := d.DialContext(ctx, "tcp", "example.com:443", hello)
+	c, err := d.DialContext(ctx, "tcp", address, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +300,7 @@ func testDialCtrlCtxFn(t *testing.T, d Dialer) {
 	testRawConnControl(t, c.(syscall.Conn))
 }
 
-func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer) {
+func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer, address string) {
 	var ctrlCtxFnCalled bool
 
 	d.Control = func(network, address string, c syscall.RawConn) error {
@@ -252,7 +313,7 @@ func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer) {
 		return nil
 	}
 
-	c, err := d.Dial("tcp", "example.com:443", hello)
+	c, err := d.Dial("tcp", address, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
