@@ -59,7 +59,7 @@ func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (ne
 	if lc.tfoDisabled() || !networkIsTCP(network) {
 		return lc.ListenConfig.Listen(ctx, network, address)
 	}
-	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_notdarwin.go
+	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_fallback.go, tfo_listen_generic.go
 }
 
 // ListenContext is like [net.ListenContext] but enables TFO whenever possible.
@@ -83,7 +83,7 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 		address = laddr.String()
 	}
 	var lc ListenConfig
-	ln, err := lc.listenTFO(context.Background(), network, address) // tfo_darwin.go, tfo_notdarwin.go
+	ln, err := lc.listenTFO(context.Background(), network, address) // tfo_darwin.go, tfo_fallback.go, tfo_listen_generic.go
 	if err != nil {
 		return nil, err
 	}
