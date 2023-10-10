@@ -21,7 +21,9 @@ const sendtoImplicitConnectFlag = unix.MSG_FASTOPEN
 func doConnectCanFallback(err error) bool {
 	// On Linux, calling sendto() on an unconnected TCP socket with zero or invalid flags
 	// returns -EPIPE. This indicates that the MSG_FASTOPEN flag is not recognized by the kernel.
-	return err == syscall.EPIPE
+	//
+	// -EOPNOTSUPP is returned if the kernel recognizes the flag, but TFO is disabled via sysctl.
+	return err == syscall.EPIPE || err == syscall.EOPNOTSUPP
 }
 
 func (a *atomicDialTFOSupport) casLinuxSendto() bool {
