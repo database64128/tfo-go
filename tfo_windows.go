@@ -4,6 +4,7 @@ package tfo
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"sync"
@@ -187,7 +188,7 @@ func (c *rawConn) Write(f func(uintptr) bool) error {
 	return syscall.EWINDOWS
 }
 
-func (*Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
 	ltsa := (*tcpSockaddr)(laddr)
 	rtsa := (*tcpSockaddr)(raddr)
 	family, ipv6only := favoriteAddrFamily(network, ltsa, rtsa, "dial")
@@ -238,8 +239,11 @@ func (*Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net
 	}
 
 	if err = setTFODialer(uintptr(handle)); err != nil {
-		tc.Close()
-		return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
+		if !d.Fallback || !errors.Is(err, errors.ErrUnsupported) {
+			tc.Close()
+			return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
+		}
+		runtimeDialTFOSupport.storeNone()
 	}
 
 	if ctrlCtxFn != nil {

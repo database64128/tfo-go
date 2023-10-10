@@ -13,7 +13,10 @@ func (*ListenConfig) listenTFO(ctx context.Context, network, address string) (ne
 	return nil, ErrPlatformUnsupported
 }
 
-func (*Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+	if d.Fallback {
+		return d.dialAndWriteTCPConn(ctx, network, address, b)
+	}
 	return nil, ErrPlatformUnsupported
 }
 

@@ -2,11 +2,43 @@ package tfo
 
 import (
 	"context"
+	"errors"
 	"net"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
 
+const setTFODialerFromSocketSockoptName = "unreachable"
+
+func setTFODialerFromSocket(fd uintptr) error {
+	return nil
+}
+
+const sendtoImplicitConnectFlag = unix.MSG_FASTOPEN
+
+// doConnectCanFallback returns whether err from [doConnect] indicates lack of TFO support.
+func doConnectCanFallback(err error) bool {
+	// On Linux, calling sendto() on an unconnected TCP socket with zero or invalid flags
+	// returns -EPIPE. This indicates that the MSG_FASTOPEN flag is not recognized by the kernel.
+	return err == syscall.EPIPE
+}
+
+func (a *atomicDialTFOSupport) casLinuxSendto() bool {
+	return a.v.CompareAndSwap(uint32(dialTFOSupportDefault), uint32(dialTFOSupportLinuxSendto))
+}
+
 func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+	if d.Fallback {
+		switch runtimeDialTFOSupport.load() {
+		case dialTFOSupportNone:
+			return d.dialAndWriteTCPConn(ctx, network, address, b)
+		case dialTFOSupportLinuxSendto:
+			return d.dialTFOFromSocket(ctx, network, address, b)
+		}
+	}
+
+	var canFallback bool
 	ctrlCtxFn := d.ControlContext
 	ctrlFn := d.Control
 	ld := *d
@@ -29,6 +61,9 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 		}
 
 		if err != nil {
+			if d.Fallback && errors.Is(err, errors.ErrUnsupported) {
+				canFallback = true
+			}
 			return wrapSyscallError("setsockopt(TCP_FASTOPEN_CONNECT)", err)
 		}
 		return nil
@@ -36,6 +71,10 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 
 	nc, err := ld.Dialer.DialContext(ctx, network, address)
 	if err != nil {
+		if d.Fallback && canFallback {
+			runtimeDialTFOSupport.casLinuxSendto()
+			return d.dialTFOFromSocket(ctx, network, address, b)
+		}
 		return nil, err
 	}
 	if err = netConnWriteBytes(ctx, nc, b); err != nil {

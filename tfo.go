@@ -101,6 +101,28 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 	return ln.(*net.TCPListener), err
 }
 
+type dialTFOSupport uint32
+
+const (
+	dialTFOSupportDefault dialTFOSupport = iota
+	dialTFOSupportNone
+	dialTFOSupportLinuxSendto
+)
+
+type atomicDialTFOSupport struct {
+	v atomic.Uint32
+}
+
+func (a *atomicDialTFOSupport) load() dialTFOSupport {
+	return dialTFOSupport(a.v.Load())
+}
+
+func (a *atomicDialTFOSupport) storeNone() {
+	a.v.Store(uint32(dialTFOSupportNone))
+}
+
+var runtimeDialTFOSupport atomicDialTFOSupport
+
 // Dialer wraps [net.Dialer] with an additional option that allows you to disable TFO.
 type Dialer struct {
 	net.Dialer
@@ -109,6 +131,36 @@ type Dialer struct {
 	// TFO is enabled by default.
 	// Set to true to disable TFO and it will behave exactly the same as [net.Dialer].
 	DisableTFO bool
+
+	// Fallback controls whether to proceed without TFO when TFO is enabled but not supported
+	// on the system.
+	// On Linux this also controls whether the sendto(MSG_FASTOPEN) fallback path is tried
+	// before giving up on TFO.
+	Fallback bool
+}
+
+func (d *Dialer) dialAndWrite(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
+	c, err := d.Dialer.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	if err = netConnWriteBytes(ctx, c, b); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
+}
+
+func (d *Dialer) dialAndWriteTCPConn(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+	c, err := d.Dialer.DialContext(ctx, network, address)
+	if err != nil {
+		return nil, err
+	}
+	if err = netConnWriteBytes(ctx, c, b); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c.(*net.TCPConn), nil
 }
 
 // DialContext is like [net.Dialer.DialContext] but enables TFO whenever possible,
@@ -118,15 +170,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string, b []b
 		return d.Dialer.DialContext(ctx, network, address)
 	}
 	if d.DisableTFO || !networkIsTCP(network) {
-		c, err := d.Dialer.DialContext(ctx, network, address)
-		if err != nil {
-			return nil, err
-		}
-		if err = netConnWriteBytes(ctx, c, b); err != nil {
-			c.Close()
-			return nil, err
-		}
-		return c, nil
+		return d.dialAndWrite(ctx, network, address, b)
 	}
 	return d.dialTFO(ctx, network, address, b) // tfo_linux.go, tfo_windows_bsd.go, tfo_fallback.go
 }

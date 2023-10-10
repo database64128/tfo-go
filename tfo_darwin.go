@@ -95,6 +95,8 @@ func (d *Dialer) setIPv6Only(fd int, family int, ipv6only bool) error {
 	return setIPv6Only(fd, family, ipv6only)
 }
 
+const setTFODialerFromSocketSockoptName = "TCP_FASTOPEN_FORCE_ENABLE"
+
 const connectSyscallName = "connectx"
 
 func doConnect(fd uintptr, rsa syscall.Sockaddr, b []byte) (int, error) {
