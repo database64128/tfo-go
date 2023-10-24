@@ -35,9 +35,21 @@ var listenConfigCases = []struct {
 	{"TFO+Backlog-1", ListenConfig{Backlog: -1}, mptcpUseDefault},
 	{"TFO+Backlog-1+MPTCPEnabled", ListenConfig{Backlog: -1}, mptcpEnabled},
 	{"TFO+Backlog-1+MPTCPDisabled", ListenConfig{Backlog: -1}, mptcpDisabled},
+	{"TFO+Fallback", ListenConfig{Fallback: true}, mptcpUseDefault},
+	{"TFO+Fallback+MPTCPEnabled", ListenConfig{Fallback: true}, mptcpEnabled},
+	{"TFO+Fallback+MPTCPDisabled", ListenConfig{Fallback: true}, mptcpDisabled},
 	{"NoTFO", ListenConfig{DisableTFO: true}, mptcpUseDefault},
 	{"NoTFO+MPTCPEnabled", ListenConfig{DisableTFO: true}, mptcpEnabled},
 	{"NoTFO+MPTCPDisabled", ListenConfig{DisableTFO: true}, mptcpDisabled},
+	{"NoTFO+Backlog1024", ListenConfig{DisableTFO: true, Backlog: 1024}, mptcpUseDefault},
+	{"NoTFO+Backlog1024+MPTCPEnabled", ListenConfig{DisableTFO: true, Backlog: 1024}, mptcpEnabled},
+	{"NoTFO+Backlog1024+MPTCPDisabled", ListenConfig{DisableTFO: true, Backlog: 1024}, mptcpDisabled},
+	{"NoTFO+Backlog-1", ListenConfig{DisableTFO: true, Backlog: -1}, mptcpUseDefault},
+	{"NoTFO+Backlog-1+MPTCPEnabled", ListenConfig{DisableTFO: true, Backlog: -1}, mptcpEnabled},
+	{"NoTFO+Backlog-1+MPTCPDisabled", ListenConfig{DisableTFO: true, Backlog: -1}, mptcpDisabled},
+	{"NoTFO+Fallback", ListenConfig{DisableTFO: true, Fallback: true}, mptcpUseDefault},
+	{"NoTFO+Fallback+MPTCPEnabled", ListenConfig{DisableTFO: true, Fallback: true}, mptcpEnabled},
+	{"NoTFO+Fallback+MPTCPDisabled", ListenConfig{DisableTFO: true, Fallback: true}, mptcpDisabled},
 }
 
 var dialerCases = []struct {
@@ -48,9 +60,15 @@ var dialerCases = []struct {
 	{"TFO", Dialer{}, mptcpUseDefault},
 	{"TFO+MPTCPEnabled", Dialer{}, mptcpEnabled},
 	{"TFO+MPTCPDisabled", Dialer{}, mptcpDisabled},
+	{"TFO+Fallback", Dialer{Fallback: true}, mptcpUseDefault},
+	{"TFO+Fallback+MPTCPEnabled", Dialer{Fallback: true}, mptcpEnabled},
+	{"TFO+Fallback+MPTCPDisabled", Dialer{Fallback: true}, mptcpDisabled},
 	{"NoTFO", Dialer{DisableTFO: true}, mptcpUseDefault},
 	{"NoTFO+MPTCPEnabled", Dialer{DisableTFO: true}, mptcpEnabled},
 	{"NoTFO+MPTCPDisabled", Dialer{DisableTFO: true}, mptcpDisabled},
+	{"NoTFO+Fallback", Dialer{DisableTFO: true, Fallback: true}, mptcpUseDefault},
+	{"NoTFO+Fallback+MPTCPEnabled", Dialer{DisableTFO: true, Fallback: true}, mptcpEnabled},
+	{"NoTFO+Fallback+MPTCPDisabled", Dialer{DisableTFO: true, Fallback: true}, mptcpDisabled},
 }
 
 type testCase struct {
