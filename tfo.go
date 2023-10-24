@@ -70,7 +70,7 @@ func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (ne
 	if lc.tfoDisabled() || !networkIsTCP(network) || lc.tfoNeedsFallback() {
 		return lc.ListenConfig.Listen(ctx, network, address)
 	}
-	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_fallback.go, tfo_listen_generic.go
+	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_listen_generic.go, tfo_unsupported.go
 }
 
 // ListenContext is like [net.ListenContext] but enables TFO whenever possible.
@@ -94,7 +94,7 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 		address = laddr.String()
 	}
 	var lc ListenConfig
-	ln, err := lc.listenTFO(context.Background(), network, address) // tfo_darwin.go, tfo_fallback.go, tfo_listen_generic.go
+	ln, err := lc.listenTFO(context.Background(), network, address) // tfo_darwin.go, tfo_listen_generic.go, tfo_unsupported.go
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +172,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string, b []b
 	if d.DisableTFO || !networkIsTCP(network) {
 		return d.dialAndWrite(ctx, network, address, b)
 	}
-	return d.dialTFO(ctx, network, address, b) // tfo_linux.go, tfo_windows_bsd.go, tfo_fallback.go
+	return d.dialTFO(ctx, network, address, b) // tfo_bsd+windows.go, tfo_linux.go, tfo_unsupported.go
 }
 
 // Dial is like [net.Dialer.Dial] but enables TFO whenever possible,
@@ -205,7 +205,7 @@ func DialTCP(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn,
 	if raddr == nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(laddr), Addr: nil, Err: errMissingAddress}
 	}
-	return dialTCPAddr(network, laddr, raddr, b) // tfo_linux.go, tfo_windows_bsd.go, tfo_fallback.go
+	return dialTCPAddr(network, laddr, raddr, b) // tfo_bsd+windows.go, tfo_linux.go, tfo_unsupported.go
 }
 
 func networkIsTCP(network string) bool {
