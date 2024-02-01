@@ -122,19 +122,32 @@ func (fd *netFD) ctrlNetwork() string {
 //go:linkname newFD net.newFD
 func newFD(sysfd syscall.Handle, family, sotype int, net string) (*netFD, error)
 
-type rawConn netFD
+// Copied from src/net/rawconn.go
+type rawConn struct {
+	fd *netFD
+}
+
+func newRawConn(fd *netFD) *rawConn {
+	return &rawConn{fd: fd}
+}
+
+//go:linkname rawConnControl net.(*rawConn).Control
+func rawConnControl(c *rawConn, f func(uintptr)) error
+
+//go:linkname rawConnRead net.(*rawConn).Read
+func rawConnRead(c *rawConn, f func(uintptr) bool) error
+
+//go:linkname rawConnWrite net.(*rawConn).Write
+func rawConnWrite(c *rawConn, f func(uintptr) bool) error
 
 func (c *rawConn) Control(f func(uintptr)) error {
-	f(uintptr(c.pfd.Sysfd))
-	return nil
+	return rawConnControl(c, f)
 }
 
 func (c *rawConn) Read(f func(uintptr) bool) error {
-	f(uintptr(c.pfd.Sysfd))
-	return syscall.EWINDOWS
+	return rawConnRead(c, f)
 }
 
 func (c *rawConn) Write(f func(uintptr) bool) error {
-	f(uintptr(c.pfd.Sysfd))
-	return syscall.EWINDOWS
+	return rawConnWrite(c, f)
 }
