@@ -4,22 +4,12 @@ import (
 	"net"
 	"sync"
 	"syscall"
+	"time"
 	_ "unsafe"
-
-	"golang.org/x/sys/windows"
 )
 
 //go:linkname sockaddrToTCP net.sockaddrToTCP
 func sockaddrToTCP(sa syscall.Sockaddr) net.Addr
-
-//go:linkname runtime_pollServerInit internal/poll.runtime_pollServerInit
-func runtime_pollServerInit()
-
-//go:linkname runtime_pollOpen internal/poll.runtime_pollOpen
-func runtime_pollOpen(fd uintptr) (uintptr, int)
-
-// Copied from src/internal/poll/fd_poll_runtime.go
-var serverInit sync.Once
 
 //go:linkname execIO internal/poll.execIO
 func execIO(o *operation, submit func(o *operation) error) (int, error)
@@ -73,22 +63,6 @@ type pFD struct {
 	kind byte
 }
 
-func (fd *pFD) init() error {
-	serverInit.Do(runtime_pollServerInit)
-	ctx, errno := runtime_pollOpen(uintptr(fd.Sysfd))
-	if errno != 0 {
-		return syscall.Errno(errno)
-	}
-	fd.pd = ctx
-	fd.rop.mode = 'r'
-	fd.wop.mode = 'w'
-	fd.rop.fd = fd
-	fd.wop.fd = fd
-	fd.rop.runtimeCtx = fd.pd
-	fd.wop.runtimeCtx = fd.pd
-	return nil
-}
-
 func (fd *pFD) ConnectEx(ra syscall.Sockaddr, b []byte) (n int, err error) {
 	fd.wop.sa = ra
 	n, err = execIO(&fd.wop, func(o *operation) error {
@@ -112,15 +86,43 @@ type netFD struct {
 	raddr       net.Addr
 }
 
-func (fd *netFD) ctrlNetwork() string {
-	if fd.net == "tcp4" || fd.family == windows.AF_INET {
-		return "tcp4"
-	}
-	return "tcp6"
-}
-
 //go:linkname newFD net.newFD
 func newFD(sysfd syscall.Handle, family, sotype int, net string) (*netFD, error)
+
+//go:linkname netFDInit net.(*netFD).init
+func netFDInit(fd *netFD) error
+
+//go:linkname netFDClose net.(*netFD).Close
+func netFDClose(fd *netFD) error
+
+//go:linkname netFDCtrlNetwork net.(*netFD).ctrlNetwork
+func netFDCtrlNetwork(fd *netFD) string
+
+//go:linkname netFDWrite net.(*netFD).Write
+func netFDWrite(fd *netFD, p []byte) (int, error)
+
+//go:linkname netFDSetWriteDeadline net.(*netFD).SetWriteDeadline
+func netFDSetWriteDeadline(fd *netFD, t time.Time) error
+
+func (fd *netFD) init() error {
+	return netFDInit(fd)
+}
+
+func (fd *netFD) Close() error {
+	return netFDClose(fd)
+}
+
+func (fd *netFD) ctrlNetwork() string {
+	return netFDCtrlNetwork(fd)
+}
+
+func (fd *netFD) Write(p []byte) (int, error) {
+	return netFDWrite(fd, p)
+}
+
+func (fd *netFD) SetWriteDeadline(t time.Time) error {
+	return netFDSetWriteDeadline(fd, t)
+}
 
 // Copied from src/net/rawconn.go
 type rawConn struct {

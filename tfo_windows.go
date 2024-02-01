@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"runtime"
 	"syscall"
 	"unsafe"
 
@@ -67,21 +68,19 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		return nil, err
 	}
 
-	tc := (*net.TCPConn)(unsafe.Pointer(&fd))
-
 	if err = setIPv6Only(handle, family, ipv6only); err != nil {
-		tc.Close()
+		fd.Close()
 		return nil, wrapSyscallError("setsockopt(IPV6_V6ONLY)", err)
 	}
 
 	if err = setNoDelay(handle, 1); err != nil {
-		tc.Close()
+		fd.Close()
 		return nil, wrapSyscallError("setsockopt(TCP_NODELAY)", err)
 	}
 
 	if err = setTFODialer(uintptr(handle)); err != nil {
 		if !d.Fallback || !errors.Is(err, errors.ErrUnsupported) {
-			tc.Close()
+			fd.Close()
 			return nil, wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
 		}
 		runtimeDialTFOSupport.storeNone()
@@ -89,22 +88,22 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 
 	if ctrlCtxFn != nil {
 		if err = ctrlCtxFn(ctx, fd.ctrlNetwork(), raddr.String(), newRawConn(fd)); err != nil {
-			tc.Close()
+			fd.Close()
 			return nil, err
 		}
 	}
 
 	if err = syscall.Bind(syscall.Handle(handle), lsa); err != nil {
-		tc.Close()
+		fd.Close()
 		return nil, wrapSyscallError("bind", err)
 	}
 
-	if err = fd.pfd.init(); err != nil {
-		tc.Close()
+	if err = fd.init(); err != nil {
+		fd.Close()
 		return nil, err
 	}
 
-	if err = connWriteFunc(ctx, tc, func(c *net.TCPConn) error {
+	if err = connWriteFunc(ctx, fd, func(fd *netFD) error {
 		n, err := fd.pfd.ConnectEx(rsa, b)
 		if err != nil {
 			return os.NewSyscallError("connectex", err)
@@ -127,16 +126,17 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		fd.raddr = sockaddrToTCP(rsa)
 
 		if n < len(b) {
-			if _, err = tc.Write(b[n:]); err != nil {
+			if _, err = fd.Write(b[n:]); err != nil {
 				return err
 			}
 		}
 
 		return nil
 	}); err != nil {
-		tc.Close()
+		fd.Close()
 		return nil, err
 	}
 
-	return tc, nil
+	runtime.SetFinalizer(fd, netFDClose)
+	return (*net.TCPConn)(unsafe.Pointer(&fd)), nil
 }
