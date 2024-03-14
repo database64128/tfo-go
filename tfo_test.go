@@ -423,12 +423,14 @@ func testDialCtrlFn(t *testing.T, d Dialer, address string) {
 	testRawConnControl(t, c.(syscall.Conn))
 }
 
-const (
-	ctxKey = 64
-	ctxVal = 128
-)
-
 func testDialCtrlCtxFn(t *testing.T, d Dialer, address string) {
+	type contextKey int
+
+	const (
+		ctxKey = contextKey(64)
+		ctxVal = 128
+	)
+
 	var success bool
 
 	d.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) error {
