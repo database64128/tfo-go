@@ -8,7 +8,8 @@ func SetTFOListener(fd uintptr) error {
 }
 
 // SetTFOListenerWithBacklog enables TCP Fast Open on the listener with the given backlog.
-// If the platform does not support custom backlog, the specified backlog is ignored.
+// If the backlog is 0, Go std's listen(2) backlog is used.
+// If the platform does not support custom backlog values, the given backlog is ignored.
 func SetTFOListenerWithBacklog(fd uintptr, backlog int) error {
 	return setTFOListenerWithBacklog(fd, backlog) // sockopt_linux.go, sockopt_listen_generic.go, sockopt_stub.go
 }

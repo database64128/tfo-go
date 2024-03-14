@@ -42,7 +42,7 @@ type ListenConfig struct {
 	net.ListenConfig
 
 	// Backlog specifies the maximum number of pending TFO connections on supported platforms.
-	// If the value is 0, Go std's listen(2) backlog (4096, as of the current version) is used.
+	// If the value is 0, Go std's listen(2) backlog is used.
 	// If the value is negative, TFO is disabled.
 	Backlog int
 
