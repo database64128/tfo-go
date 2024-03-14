@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"sync"
 	"syscall"
 	"testing"
@@ -21,60 +22,107 @@ const (
 	mptcpDisabled
 )
 
+type runtimeFallbackHelperFunc func(*testing.T)
+
+func runtimeFallbackAsIs(t *testing.T) {}
+
+func runtimeFallbackSetListenNoTFO(t *testing.T) {
+	if runtimeListenNoTFO.CompareAndSwap(false, true) {
+		t.Cleanup(func() {
+			runtimeListenNoTFO.Store(false)
+		})
+	}
+}
+
+func runtimeFallbackSetDialNoTFO(t *testing.T) {
+	if v := runtimeDialTFOSupport.v.Swap(uint32(dialTFOSupportNone)); v != uint32(dialTFOSupportNone) {
+		t.Cleanup(func() {
+			runtimeDialTFOSupport.v.Store(v)
+		})
+	}
+}
+
+func runtimeFallbackSetDialLinuxSendto(t *testing.T) {
+	if v := runtimeDialTFOSupport.v.Swap(uint32(dialTFOSupportLinuxSendto)); v != uint32(dialTFOSupportLinuxSendto) {
+		t.Cleanup(func() {
+			runtimeDialTFOSupport.v.Store(v)
+		})
+	}
+}
+
 var listenConfigCases = []struct {
-	name         string
-	listenConfig ListenConfig
-	mptcp        mptcpStatus
+	name               string
+	listenConfig       ListenConfig
+	mptcp              mptcpStatus
+	setRuntimeFallback runtimeFallbackHelperFunc
 }{
-	{"TFO", ListenConfig{}, mptcpUseDefault},
-	{"TFO+MPTCPEnabled", ListenConfig{}, mptcpEnabled},
-	{"TFO+MPTCPDisabled", ListenConfig{}, mptcpDisabled},
-	{"TFO+Backlog1024", ListenConfig{Backlog: 1024}, mptcpUseDefault},
-	{"TFO+Backlog1024+MPTCPEnabled", ListenConfig{Backlog: 1024}, mptcpEnabled},
-	{"TFO+Backlog1024+MPTCPDisabled", ListenConfig{Backlog: 1024}, mptcpDisabled},
-	{"TFO+Backlog-1", ListenConfig{Backlog: -1}, mptcpUseDefault},
-	{"TFO+Backlog-1+MPTCPEnabled", ListenConfig{Backlog: -1}, mptcpEnabled},
-	{"TFO+Backlog-1+MPTCPDisabled", ListenConfig{Backlog: -1}, mptcpDisabled},
-	{"TFO+Fallback", ListenConfig{Fallback: true}, mptcpUseDefault},
-	{"TFO+Fallback+MPTCPEnabled", ListenConfig{Fallback: true}, mptcpEnabled},
-	{"TFO+Fallback+MPTCPDisabled", ListenConfig{Fallback: true}, mptcpDisabled},
-	{"NoTFO", ListenConfig{DisableTFO: true}, mptcpUseDefault},
-	{"NoTFO+MPTCPEnabled", ListenConfig{DisableTFO: true}, mptcpEnabled},
-	{"NoTFO+MPTCPDisabled", ListenConfig{DisableTFO: true}, mptcpDisabled},
-	{"NoTFO+Backlog1024", ListenConfig{DisableTFO: true, Backlog: 1024}, mptcpUseDefault},
-	{"NoTFO+Backlog1024+MPTCPEnabled", ListenConfig{DisableTFO: true, Backlog: 1024}, mptcpEnabled},
-	{"NoTFO+Backlog1024+MPTCPDisabled", ListenConfig{DisableTFO: true, Backlog: 1024}, mptcpDisabled},
-	{"NoTFO+Backlog-1", ListenConfig{DisableTFO: true, Backlog: -1}, mptcpUseDefault},
-	{"NoTFO+Backlog-1+MPTCPEnabled", ListenConfig{DisableTFO: true, Backlog: -1}, mptcpEnabled},
-	{"NoTFO+Backlog-1+MPTCPDisabled", ListenConfig{DisableTFO: true, Backlog: -1}, mptcpDisabled},
-	{"NoTFO+Fallback", ListenConfig{DisableTFO: true, Fallback: true}, mptcpUseDefault},
-	{"NoTFO+Fallback+MPTCPEnabled", ListenConfig{DisableTFO: true, Fallback: true}, mptcpEnabled},
-	{"NoTFO+Fallback+MPTCPDisabled", ListenConfig{DisableTFO: true, Fallback: true}, mptcpDisabled},
+	{"TFO", ListenConfig{}, mptcpUseDefault, runtimeFallbackAsIs},
+	{"TFO+RuntimeNoTFO", ListenConfig{}, mptcpUseDefault, runtimeFallbackSetListenNoTFO},
+	{"TFO+MPTCPEnabled", ListenConfig{}, mptcpEnabled, runtimeFallbackAsIs},
+	{"TFO+MPTCPEnabled+RuntimeNoTFO", ListenConfig{}, mptcpEnabled, runtimeFallbackSetListenNoTFO},
+	{"TFO+MPTCPDisabled", ListenConfig{}, mptcpDisabled, runtimeFallbackAsIs},
+	{"TFO+MPTCPDisabled+RuntimeNoTFO", ListenConfig{}, mptcpDisabled, runtimeFallbackSetListenNoTFO},
+	{"TFO+Backlog1024", ListenConfig{Backlog: 1024}, mptcpUseDefault, runtimeFallbackAsIs},
+	{"TFO+Backlog1024+MPTCPEnabled", ListenConfig{Backlog: 1024}, mptcpEnabled, runtimeFallbackAsIs},
+	{"TFO+Backlog1024+MPTCPDisabled", ListenConfig{Backlog: 1024}, mptcpDisabled, runtimeFallbackAsIs},
+	{"TFO+Backlog-1", ListenConfig{Backlog: -1}, mptcpUseDefault, runtimeFallbackAsIs},
+	{"TFO+Backlog-1+MPTCPEnabled", ListenConfig{Backlog: -1}, mptcpEnabled, runtimeFallbackAsIs},
+	{"TFO+Backlog-1+MPTCPDisabled", ListenConfig{Backlog: -1}, mptcpDisabled, runtimeFallbackAsIs},
+	{"TFO+Fallback", ListenConfig{Fallback: true}, mptcpUseDefault, runtimeFallbackAsIs},
+	{"TFO+Fallback+RuntimeNoTFO", ListenConfig{Fallback: true}, mptcpUseDefault, runtimeFallbackSetListenNoTFO},
+	{"TFO+Fallback+MPTCPEnabled", ListenConfig{Fallback: true}, mptcpEnabled, runtimeFallbackAsIs},
+	{"TFO+Fallback+MPTCPEnabled+RuntimeNoTFO", ListenConfig{Fallback: true}, mptcpEnabled, runtimeFallbackSetListenNoTFO},
+	{"TFO+Fallback+MPTCPDisabled", ListenConfig{Fallback: true}, mptcpDisabled, runtimeFallbackAsIs},
+	{"TFO+Fallback+MPTCPDisabled+RuntimeNoTFO", ListenConfig{Fallback: true}, mptcpDisabled, runtimeFallbackSetListenNoTFO},
+	{"NoTFO", ListenConfig{DisableTFO: true}, mptcpUseDefault, runtimeFallbackAsIs},
+	{"NoTFO+MPTCPEnabled", ListenConfig{DisableTFO: true}, mptcpEnabled, runtimeFallbackAsIs},
+	{"NoTFO+MPTCPDisabled", ListenConfig{DisableTFO: true}, mptcpDisabled, runtimeFallbackAsIs},
 }
 
 var dialerCases = []struct {
-	name   string
-	dialer Dialer
-	mptcp  mptcpStatus
+	name               string
+	dialer             Dialer
+	mptcp              mptcpStatus
+	setRuntimeFallback runtimeFallbackHelperFunc
+	linuxOnly          bool
 }{
-	{"TFO", Dialer{}, mptcpUseDefault},
-	{"TFO+MPTCPEnabled", Dialer{}, mptcpEnabled},
-	{"TFO+MPTCPDisabled", Dialer{}, mptcpDisabled},
-	{"TFO+Fallback", Dialer{Fallback: true}, mptcpUseDefault},
-	{"TFO+Fallback+MPTCPEnabled", Dialer{Fallback: true}, mptcpEnabled},
-	{"TFO+Fallback+MPTCPDisabled", Dialer{Fallback: true}, mptcpDisabled},
-	{"NoTFO", Dialer{DisableTFO: true}, mptcpUseDefault},
-	{"NoTFO+MPTCPEnabled", Dialer{DisableTFO: true}, mptcpEnabled},
-	{"NoTFO+MPTCPDisabled", Dialer{DisableTFO: true}, mptcpDisabled},
-	{"NoTFO+Fallback", Dialer{DisableTFO: true, Fallback: true}, mptcpUseDefault},
-	{"NoTFO+Fallback+MPTCPEnabled", Dialer{DisableTFO: true, Fallback: true}, mptcpEnabled},
-	{"NoTFO+Fallback+MPTCPDisabled", Dialer{DisableTFO: true, Fallback: true}, mptcpDisabled},
+	{"TFO", Dialer{}, mptcpUseDefault, runtimeFallbackAsIs, false},
+	{"TFO+RuntimeNoTFO", Dialer{}, mptcpUseDefault, runtimeFallbackSetDialNoTFO, false},
+	{"TFO+RuntimeLinuxSendto", Dialer{}, mptcpUseDefault, runtimeFallbackSetDialLinuxSendto, true},
+	{"TFO+MPTCPEnabled", Dialer{}, mptcpEnabled, runtimeFallbackAsIs, false},
+	{"TFO+MPTCPEnabled+RuntimeNoTFO", Dialer{}, mptcpEnabled, runtimeFallbackSetDialNoTFO, false},
+	{"TFO+MPTCPEnabled+RuntimeLinuxSendto", Dialer{}, mptcpEnabled, runtimeFallbackSetDialLinuxSendto, true},
+	{"TFO+MPTCPDisabled", Dialer{}, mptcpDisabled, runtimeFallbackAsIs, false},
+	{"TFO+MPTCPDisabled+RuntimeNoTFO", Dialer{}, mptcpDisabled, runtimeFallbackSetDialNoTFO, false},
+	{"TFO+MPTCPDisabled+RuntimeLinuxSendto", Dialer{}, mptcpDisabled, runtimeFallbackSetDialLinuxSendto, true},
+	{"TFO+Fallback", Dialer{Fallback: true}, mptcpUseDefault, runtimeFallbackAsIs, false},
+	{"TFO+Fallback+RuntimeNoTFO", Dialer{Fallback: true}, mptcpUseDefault, runtimeFallbackSetDialNoTFO, false},
+	{"TFO+Fallback+RuntimeLinuxSendto", Dialer{Fallback: true}, mptcpUseDefault, runtimeFallbackSetDialLinuxSendto, true},
+	{"TFO+Fallback+MPTCPEnabled", Dialer{Fallback: true}, mptcpEnabled, runtimeFallbackAsIs, false},
+	{"TFO+Fallback+MPTCPEnabled+RuntimeNoTFO", Dialer{Fallback: true}, mptcpEnabled, runtimeFallbackSetDialNoTFO, false},
+	{"TFO+Fallback+MPTCPEnabled+RuntimeLinuxSendto", Dialer{Fallback: true}, mptcpEnabled, runtimeFallbackSetDialLinuxSendto, true},
+	{"TFO+Fallback+MPTCPDisabled", Dialer{Fallback: true}, mptcpDisabled, runtimeFallbackAsIs, false},
+	{"TFO+Fallback+MPTCPDisabled+RuntimeNoTFO", Dialer{Fallback: true}, mptcpDisabled, runtimeFallbackSetDialNoTFO, false},
+	{"TFO+Fallback+MPTCPDisabled+RuntimeLinuxSendto", Dialer{Fallback: true}, mptcpDisabled, runtimeFallbackSetDialLinuxSendto, true},
+	{"NoTFO", Dialer{DisableTFO: true}, mptcpUseDefault, runtimeFallbackAsIs, false},
+	{"NoTFO+MPTCPEnabled", Dialer{DisableTFO: true}, mptcpEnabled, runtimeFallbackAsIs, false},
+	{"NoTFO+MPTCPDisabled", Dialer{DisableTFO: true}, mptcpDisabled, runtimeFallbackAsIs, false},
 }
 
 type testCase struct {
-	name         string
-	listenConfig ListenConfig
-	dialer       Dialer
+	name                     string
+	listenConfig             ListenConfig
+	dialer                   Dialer
+	setRuntimeFallbackListen runtimeFallbackHelperFunc
+	setRuntimeFallbackDial   runtimeFallbackHelperFunc
+}
+
+func (c testCase) Run(t *testing.T, f func(*testing.T, ListenConfig, Dialer)) {
+	t.Run(c.name, func(t *testing.T) {
+		c.setRuntimeFallbackListen(t)
+		c.setRuntimeFallbackDial(t)
+		f(t, c.listenConfig, c.dialer)
+	})
 }
 
 // cases is a list of [ListenConfig] and [Dialer] combinations to test.
@@ -119,10 +167,19 @@ func init() {
 			if comptimeNoTFO && !d.dialer.DisableTFO {
 				continue
 			}
+			switch runtime.GOOS {
+			case "linux", "android":
+			default:
+				if d.linuxOnly {
+					continue
+				}
+			}
 			cases = append(cases, testCase{
-				name:         lc.name + "/" + d.name,
-				listenConfig: lc.listenConfig,
-				dialer:       d.dialer,
+				name:                     lc.name + "/" + d.name,
+				listenConfig:             lc.listenConfig,
+				dialer:                   d.dialer,
+				setRuntimeFallbackListen: lc.setRuntimeFallback,
+				setRuntimeFallbackDial:   d.setRuntimeFallback,
 			})
 		}
 	}
@@ -227,9 +284,7 @@ func testListenDialUDP(t *testing.T, lc ListenConfig, d Dialer) {
 // [Dialer] are not affected by this package.
 func TestListenDialUDP(t *testing.T) {
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testListenDialUDP(t, c.listenConfig, c.dialer)
-		})
+		c.Run(t, testListenDialUDP)
 	}
 }
 
@@ -238,6 +293,7 @@ func TestListenDialUDP(t *testing.T) {
 func TestListenCtrlFn(t *testing.T) {
 	for _, c := range listenConfigCases {
 		t.Run(c.name, func(t *testing.T) {
+			c.setRuntimeFallback(t)
 			testListenCtrlFn(t, c.listenConfig)
 		})
 	}
@@ -256,6 +312,7 @@ func TestDialCtrlFn(t *testing.T) {
 
 	for _, c := range dialerCases {
 		t.Run(c.name, func(t *testing.T) {
+			c.setRuntimeFallback(t)
 			testDialCtrlFn(t, c.dialer, address)
 			testDialCtrlCtxFn(t, c.dialer, address)
 			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer, address)
@@ -267,9 +324,7 @@ func TestDialCtrlFn(t *testing.T) {
 // [*net.TCPConn] return the correct values.
 func TestAddrFunctions(t *testing.T) {
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testAddrFunctions(t, c.listenConfig, c.dialer)
-		})
+		c.Run(t, testAddrFunctions)
 	}
 }
 
@@ -277,9 +332,7 @@ func TestAddrFunctions(t *testing.T) {
 // the server can read from the client, and the server can write to the client.
 func TestClientWriteReadServerReadWrite(t *testing.T) {
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testClientWriteReadServerReadWrite(t, c.listenConfig, c.dialer)
-		})
+		c.Run(t, testClientWriteReadServerReadWrite)
 	}
 }
 
@@ -287,9 +340,7 @@ func TestClientWriteReadServerReadWrite(t *testing.T) {
 // the client can read from the server, and the client can write to the server.
 func TestServerWriteReadClientReadWrite(t *testing.T) {
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testServerWriteReadClientReadWrite(t, c.listenConfig, c.dialer)
-		})
+		c.Run(t, testServerWriteReadClientReadWrite)
 	}
 }
 
@@ -297,9 +348,7 @@ func TestServerWriteReadClientReadWrite(t *testing.T) {
 // on accepted and dialed connections works as expected.
 func TestClientServerReadFrom(t *testing.T) {
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testClientServerReadFrom(t, c.listenConfig, c.dialer)
-		})
+		c.Run(t, testClientServerReadFrom)
 	}
 }
 
@@ -307,9 +356,7 @@ func TestClientServerReadFrom(t *testing.T) {
 // SetWriteDeadline methods on accepted and dialed connections work as expected.
 func TestSetDeadline(t *testing.T) {
 	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			testSetDeadline(t, c.listenConfig, c.dialer)
-		})
+		c.Run(t, testSetDeadline)
 	}
 }
 
