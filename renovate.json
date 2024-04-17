@@ -1,26 +1,6 @@
 {
     "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-    "commitMessagePrefix": "🔼",
     "extends": [
-        "config:base",
-        ":automergeBranch",
-        ":automergeDigest",
-        ":automergeMinor",
-        ":disableRateLimiting"
-    ],
-    "packageRules": [
-        {
-            "description": "Disable minimum Go version updates: https://github.com/renovatebot/renovate/issues/16715",
-            "matchManagers": [
-                "gomod"
-            ],
-            "matchDepTypes": [
-                "golang"
-            ],
-            "enabled": false
-        }
-    ],
-    "postUpdateOptions": [
-        "gomodTidy"
+        "github>database64128/renovate-config:go"
     ]
 }
