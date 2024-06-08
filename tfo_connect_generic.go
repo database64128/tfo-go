@@ -1,4 +1,4 @@
-//go:build darwin || freebsd || linux || windows
+//go:build darwin || freebsd || linux || (windows && (!go1.23 || (go1.23 && tfogo_checklinkname0)))
 
 package tfo
 
@@ -11,7 +11,7 @@ import (
 	_ "unsafe"
 )
 
-const comptimeNoTFO = false
+const comptimeDialNoTFO = false
 
 const (
 	defaultTCPKeepAlive  = 15 * time.Second

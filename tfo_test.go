@@ -50,12 +50,24 @@ func runtimeFallbackSetDialLinuxSendto(t *testing.T) {
 	}
 }
 
-var listenConfigCases = []struct {
+type listenConfigTestCase struct {
 	name               string
 	listenConfig       ListenConfig
 	mptcp              mptcpStatus
 	setRuntimeFallback runtimeFallbackHelperFunc
-}{
+}
+
+func (c listenConfigTestCase) shouldSkip() bool {
+	return comptimeListenNoTFO && !c.listenConfig.tfoDisabled()
+}
+
+func (c listenConfigTestCase) checkSkip(t *testing.T) {
+	if c.shouldSkip() {
+		t.Skip("not applicable to the current platform")
+	}
+}
+
+var listenConfigCases = []listenConfigTestCase{
 	{"TFO", ListenConfig{}, mptcpUseDefault, runtimeFallbackAsIs},
 	{"TFO+RuntimeNoTFO", ListenConfig{}, mptcpUseDefault, runtimeFallbackSetListenNoTFO},
 	{"TFO+MPTCPEnabled", ListenConfig{}, mptcpEnabled, runtimeFallbackAsIs},
@@ -79,13 +91,35 @@ var listenConfigCases = []struct {
 	{"NoTFO+MPTCPDisabled", ListenConfig{DisableTFO: true}, mptcpDisabled, runtimeFallbackAsIs},
 }
 
-var dialerCases = []struct {
+type dialerTestCase struct {
 	name               string
 	dialer             Dialer
 	mptcp              mptcpStatus
 	setRuntimeFallback runtimeFallbackHelperFunc
 	linuxOnly          bool
-}{
+}
+
+func (c dialerTestCase) shouldSkip() bool {
+	if comptimeDialNoTFO && !c.dialer.DisableTFO {
+		return true
+	}
+	switch runtime.GOOS {
+	case "linux", "android":
+	default:
+		if c.linuxOnly {
+			return true
+		}
+	}
+	return false
+}
+
+func (c dialerTestCase) checkSkip(t *testing.T) {
+	if c.shouldSkip() {
+		t.Skip("not applicable to the current platform")
+	}
+}
+
+var dialerCases = []dialerTestCase{
 	{"TFO", Dialer{}, mptcpUseDefault, runtimeFallbackAsIs, false},
 	{"TFO+RuntimeNoTFO", Dialer{}, mptcpUseDefault, runtimeFallbackSetDialNoTFO, false},
 	{"TFO+RuntimeLinuxSendto", Dialer{}, mptcpUseDefault, runtimeFallbackSetDialLinuxSendto, true},
@@ -160,19 +194,12 @@ func init() {
 	// Generate [cases].
 	cases = make([]testCase, 0, len(listenConfigCases)*len(dialerCases))
 	for _, lc := range listenConfigCases {
-		if comptimeNoTFO && !lc.listenConfig.tfoDisabled() {
+		if lc.shouldSkip() {
 			continue
 		}
 		for _, d := range dialerCases {
-			if comptimeNoTFO && !d.dialer.DisableTFO {
+			if d.shouldSkip() {
 				continue
-			}
-			switch runtime.GOOS {
-			case "linux", "android":
-			default:
-				if d.linuxOnly {
-					continue
-				}
 			}
 			cases = append(cases, testCase{
 				name:                     lc.name + "/" + d.name,
@@ -193,7 +220,7 @@ type discardTCPServer struct {
 
 // newDiscardTCPServer creates a new [discardTCPServer] that listens on a random port.
 func newDiscardTCPServer(ctx context.Context) (*discardTCPServer, error) {
-	lc := ListenConfig{DisableTFO: comptimeNoTFO}
+	lc := ListenConfig{DisableTFO: comptimeListenNoTFO}
 	ln, err := lc.Listen(ctx, "tcp", "[::1]:")
 	if err != nil {
 		return nil, err
@@ -293,6 +320,7 @@ func TestListenDialUDP(t *testing.T) {
 func TestListenCtrlFn(t *testing.T) {
 	for _, c := range listenConfigCases {
 		t.Run(c.name, func(t *testing.T) {
+			c.checkSkip(t)
 			c.setRuntimeFallback(t)
 			testListenCtrlFn(t, c.listenConfig)
 		})
@@ -312,6 +340,7 @@ func TestDialCtrlFn(t *testing.T) {
 
 	for _, c := range dialerCases {
 		t.Run(c.name, func(t *testing.T) {
+			c.checkSkip(t)
 			c.setRuntimeFallback(t)
 			testDialCtrlFn(t, c.dialer, address)
 			testDialCtrlCtxFn(t, c.dialer, address)

@@ -7,6 +7,6 @@ func setTFODialerFromSocket(fd uintptr) error {
 }
 
 // doConnectCanFallback returns whether err from [doConnect] indicates lack of TFO support.
-func doConnectCanFallback(err error) bool {
+func doConnectCanFallback(_ error) bool {
 	return false
 }

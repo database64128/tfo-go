@@ -1,4 +1,4 @@
-//go:build darwin || freebsd || windows
+//go:build darwin || freebsd || (windows && (!go1.23 || (go1.23 && tfogo_checklinkname0)))
 
 package tfo
 

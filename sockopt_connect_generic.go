@@ -1,4 +1,4 @@
-//go:build freebsd || windows
+//go:build freebsd || (windows && (!go1.23 || (go1.23 && tfogo_checklinkname0)))
 
 package tfo
 

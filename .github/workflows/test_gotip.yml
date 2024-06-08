@@ -27,3 +27,6 @@ jobs:
 
       - name: Test
         run: gotip test -v
+
+      - name: Test with tag tfogo_checklinkname0
+        run: gotip test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0
