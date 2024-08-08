@@ -4,4 +4,4 @@ go 1.21.8
 
 toolchain go1.22.6
 
-require golang.org/x/sys v0.23.0
+require golang.org/x/sys v0.24.0
