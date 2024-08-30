@@ -3,8 +3,6 @@
 package tfo
 
 import (
-	"syscall"
-
 	"golang.org/x/sys/unix"
 )
 
@@ -18,6 +16,6 @@ func (*Dialer) setIPv6Only(fd int, family int, ipv6only bool) error {
 
 const connectSyscallName = "sendmsg"
 
-func doConnect(fd uintptr, rsa syscall.Sockaddr, b []byte) (int, error) {
-	return syscall.SendmsgN(int(fd), b, nil, rsa, sendtoImplicitConnectFlag|unix.MSG_NOSIGNAL)
+func doConnect(fd uintptr, rsa unix.Sockaddr, b []byte) (int, error) {
+	return unix.SendmsgN(int(fd), b, nil, rsa, sendtoImplicitConnectFlag|unix.MSG_NOSIGNAL)
 }

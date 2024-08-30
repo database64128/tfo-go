@@ -96,13 +96,18 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		}
 	}
 
+	rusa, err := unixSockaddrFromSyscallSockaddr(rsa)
+	if err != nil {
+		return nil, err
+	}
+
 	var (
 		n           int
 		canFallback bool
 	)
 
 	if err = connWriteFunc(ctx, f, func(f *os.File) (err error) {
-		n, canFallback, err = connect(rawConn, rsa, b)
+		n, canFallback, err = connect(rawConn, rusa, b)
 		return err
 	}); err != nil {
 		if d.Fallback && canFallback {
@@ -127,7 +132,27 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	return c.(*net.TCPConn), err
 }
 
-func connect(rawConn syscall.RawConn, rsa syscall.Sockaddr, b []byte) (n int, canFallback bool, err error) {
+func unixSockaddrFromSyscallSockaddr(sa syscall.Sockaddr) (unix.Sockaddr, error) {
+	if sa == nil {
+		return nil, nil
+	}
+	switch sa := sa.(type) {
+	case *syscall.SockaddrInet4:
+		return &unix.SockaddrInet4{
+			Port: sa.Port,
+			Addr: sa.Addr,
+		}, nil
+	case *syscall.SockaddrInet6:
+		return &unix.SockaddrInet6{
+			Port:   sa.Port,
+			ZoneId: sa.ZoneId,
+			Addr:   sa.Addr,
+		}, nil
+	}
+	return nil, errors.New("unsupported sockaddr type")
+}
+
+func connect(rawConn syscall.RawConn, rsa unix.Sockaddr, b []byte) (n int, canFallback bool, err error) {
 	var done bool
 
 	if perr := rawConn.Write(func(fd uintptr) bool {

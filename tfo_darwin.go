@@ -99,7 +99,20 @@ const setTFODialerFromSocketSockoptName = "TCP_FASTOPEN_FORCE_ENABLE"
 
 const connectSyscallName = "connectx"
 
-func doConnect(fd uintptr, rsa syscall.Sockaddr, b []byte) (int, error) {
-	n, err := Connectx(int(fd), 0, nil, rsa, b)
+func doConnect(fd uintptr, rsa unix.Sockaddr, b []byte) (int, error) {
+	var (
+		flags uint32
+		iov   []unix.Iovec
+	)
+	if len(b) > 0 {
+		flags = unix.CONNECT_DATA_IDEMPOTENT
+		iov = []unix.Iovec{
+			{
+				Base: &b[0],
+				Len:  uint64(len(b)),
+			},
+		}
+	}
+	n, err := unix.Connectx(int(fd), 0, nil, rsa, unix.SAE_ASSOCID_ANY, flags, iov, nil)
 	return int(n), err
 }
