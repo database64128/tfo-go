@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -75,17 +76,22 @@ func (d *Dialer) socket(domain int) (fd int, err error) {
 	if d.MultipathTCP() {
 		domain = AF_MULTIPATH
 	}
+
+	syscall.ForkLock.RLock()
 	fd, err = unix.Socket(domain, unix.SOCK_STREAM, unix.IPPROTO_TCP)
 	if err != nil {
-		return
+		syscall.ForkLock.RUnlock()
+		return 0, os.NewSyscallError("socket", err)
 	}
 	unix.CloseOnExec(fd)
-	err = unix.SetNonblock(fd, true)
-	if err != nil {
+	syscall.ForkLock.RUnlock()
+
+	if err = unix.SetNonblock(fd, true); err != nil {
 		unix.Close(fd)
-		fd = 0
+		return 0, os.NewSyscallError("setnonblock", err)
 	}
-	return
+
+	return fd, nil
 }
 
 func (d *Dialer) setIPv6Only(fd int, family int, ipv6only bool) error {
