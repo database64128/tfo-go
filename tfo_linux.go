@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -11,7 +12,7 @@ import (
 
 const setTFODialerFromSocketSockoptName = "unreachable"
 
-func setTFODialerFromSocket(fd uintptr) error {
+func setTFODialerFromSocket(_ uintptr) error {
 	return nil
 }
 
@@ -23,7 +24,7 @@ func doConnectCanFallback(err error) bool {
 	// returns -EPIPE. This indicates that the MSG_FASTOPEN flag is not recognized by the kernel.
 	//
 	// -EOPNOTSUPP is returned if the kernel recognizes the flag, but TFO is disabled via sysctl.
-	return err == syscall.EPIPE || err == syscall.EOPNOTSUPP
+	return err == unix.EPIPE || err == unix.EOPNOTSUPP
 }
 
 func (a *atomicDialTFOSupport) casLinuxSendto() bool {
@@ -66,7 +67,7 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 			if d.Fallback && errors.Is(err, errors.ErrUnsupported) {
 				canFallback = true
 			}
-			return wrapSyscallError("setsockopt(TCP_FASTOPEN_CONNECT)", err)
+			return os.NewSyscallError("setsockopt(TCP_FASTOPEN_CONNECT)", err)
 		}
 		return nil
 	}

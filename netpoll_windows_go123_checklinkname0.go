@@ -3,8 +3,6 @@
 package tfo
 
 import (
-	"syscall"
-
 	"golang.org/x/sys/windows"
 )
 
@@ -14,7 +12,7 @@ import (
 type operation struct {
 	// Used by IOCP interface, it must be first field
 	// of the struct, as our code rely on it.
-	o syscall.Overlapped
+	o windows.Overlapped
 
 	// fields used by runtime.netpoll
 	runtimeCtx uintptr
@@ -22,13 +20,13 @@ type operation struct {
 
 	// fields used only by net package
 	fd     *pFD
-	buf    syscall.WSABuf
+	buf    windows.WSABuf
 	msg    windows.WSAMsg
-	sa     syscall.Sockaddr
-	rsa    *syscall.RawSockaddrAny
+	sa     windows.Sockaddr
+	rsa    *windows.RawSockaddrAny
 	rsan   int32
-	handle syscall.Handle
+	handle windows.Handle
 	flags  uint32
 	qty    uint32
-	bufs   []syscall.WSABuf
+	bufs   []windows.WSABuf
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"syscall"
 )
 
@@ -28,7 +29,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 
 		if err != nil {
 			if !lc.Fallback || !errors.Is(err, errors.ErrUnsupported) {
-				return wrapSyscallError("setsockopt(TCP_FASTOPEN)", err)
+				return os.NewSyscallError("setsockopt(TCP_FASTOPEN)", err)
 			}
 			runtimeListenNoTFO.Store(true)
 		}

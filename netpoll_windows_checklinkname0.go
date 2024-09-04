@@ -5,13 +5,11 @@ package tfo
 import (
 	"net"
 	"sync"
-	"syscall"
 	"time"
 	_ "unsafe"
-)
 
-//go:linkname sockaddrToTCP net.sockaddrToTCP
-func sockaddrToTCP(sa syscall.Sockaddr) net.Addr
+	"golang.org/x/sys/windows"
+)
 
 //go:linkname execIO internal/poll.execIO
 func execIO(o *operation, submit func(o *operation) error) (int, error)
@@ -26,7 +24,7 @@ type pFD struct {
 	fdmuW uint32
 
 	// System file descriptor. Immutable until Close.
-	Sysfd syscall.Handle
+	Sysfd windows.Handle
 
 	// Read operation.
 	rop operation
@@ -65,10 +63,9 @@ type pFD struct {
 	kind byte
 }
 
-func (fd *pFD) ConnectEx(ra syscall.Sockaddr, b []byte) (n int, err error) {
-	fd.wop.sa = ra
+func (fd *pFD) ConnectEx(ra windows.Sockaddr, b []byte) (n int, err error) {
 	n, err = execIO(&fd.wop, func(o *operation) error {
-		return syscall.ConnectEx(o.fd.Sysfd, o.sa, &b[0], uint32(len(b)), &o.qty, &o.o)
+		return windows.ConnectEx(o.fd.Sysfd, ra, &b[0], uint32(len(b)), &o.qty, &o.o)
 	})
 	return
 }
@@ -89,7 +86,7 @@ type netFD struct {
 }
 
 //go:linkname newFD net.newFD
-func newFD(sysfd syscall.Handle, family, sotype int, net string) (*netFD, error)
+func newFD(sysfd windows.Handle, family, sotype int, net string) (*netFD, error)
 
 //go:linkname netFDInit net.(*netFD).init
 func netFDInit(fd *netFD) error
