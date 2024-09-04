@@ -9,6 +9,7 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/database64128/netx-go"
 	"golang.org/x/sys/unix"
 )
 
@@ -34,19 +35,7 @@ func ctrlNetwork(network string, family int) string {
 }
 
 func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
-	ltsa := (*tcpSockaddr)(laddr)
-	rtsa := (*tcpSockaddr)(raddr)
-	family, ipv6only := favoriteAddrFamily(network, ltsa, rtsa, "dial")
-
-	lsa, err := ltsa.sockaddr(family)
-	if err != nil {
-		return nil, err
-	}
-
-	rsa, err := rtsa.sockaddr(family)
-	if err != nil {
-		return nil, err
-	}
+	family, ipv6only := favoriteDialAddrFamily(network, laddr, raddr)
 
 	fd, err := d.socket(family)
 	if err != nil {
@@ -55,18 +44,18 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 
 	if err = d.setIPv6Only(fd, family, ipv6only); err != nil {
 		unix.Close(fd)
-		return nil, wrapSyscallError("setsockopt(IPV6_V6ONLY)", err)
+		return nil, os.NewSyscallError("setsockopt(IPV6_V6ONLY)", err)
 	}
 
 	if err = setNoDelay(fd, 1); err != nil {
 		unix.Close(fd)
-		return nil, wrapSyscallError("setsockopt(TCP_NODELAY)", err)
+		return nil, os.NewSyscallError("setsockopt(TCP_NODELAY)", err)
 	}
 
 	if err = setTFODialerFromSocket(uintptr(fd)); err != nil {
 		if !d.Fallback || !errors.Is(err, errors.ErrUnsupported) {
 			unix.Close(fd)
-			return nil, wrapSyscallError("setsockopt("+setTFODialerFromSocketSockoptName+")", err)
+			return nil, os.NewSyscallError("setsockopt("+setTFODialerFromSocketSockoptName+")", err)
 		}
 		runtimeDialTFOSupport.storeNone()
 	}
@@ -86,8 +75,13 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	}
 
 	if laddr != nil {
+		lsa, err := unixSockaddrFromTCPAddr(laddr, family)
+		if err != nil {
+			return nil, err
+		}
+
 		if cErr := rawConn.Control(func(fd uintptr) {
-			err = syscall.Bind(int(fd), lsa)
+			err = unix.Bind(int(fd), lsa)
 		}); cErr != nil {
 			return nil, cErr
 		}
@@ -96,7 +90,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		}
 	}
 
-	rusa, err := unixSockaddrFromSyscallSockaddr(rsa)
+	rsa, err := unixSockaddrFromTCPAddr(raddr, family)
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +101,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	)
 
 	if err = connWriteFunc(ctx, f, func(f *os.File) (err error) {
-		n, canFallback, err = connect(rawConn, rusa, b)
+		n, canFallback, err = connect(rawConn, rsa, b)
 		return err
 	}); err != nil {
 		if d.Fallback && canFallback {
@@ -132,24 +126,39 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	return c.(*net.TCPConn), err
 }
 
-func unixSockaddrFromSyscallSockaddr(sa syscall.Sockaddr) (unix.Sockaddr, error) {
-	if sa == nil {
+func unixSockaddrFromTCPAddr(a *net.TCPAddr, family int) (unix.Sockaddr, error) {
+	if a == nil {
 		return nil, nil
 	}
-	switch sa := sa.(type) {
-	case *syscall.SockaddrInet4:
+	ip := a.IP
+	switch family {
+	case unix.AF_INET:
+		if len(ip) == 0 {
+			ip = net.IPv4zero
+		}
+		ip4 := ip.To4()
+		if ip4 == nil {
+			return nil, &net.AddrError{Err: "non-IPv4 address", Addr: ip.String()}
+		}
 		return &unix.SockaddrInet4{
-			Port: sa.Port,
-			Addr: sa.Addr,
+			Port: a.Port,
+			Addr: [4]byte(ip4),
 		}, nil
-	case *syscall.SockaddrInet6:
+	case unix.AF_INET6:
+		if len(ip) == 0 || ip.Equal(net.IPv4zero) {
+			ip = net.IPv6zero
+		}
+		ip6 := ip.To16()
+		if ip6 == nil {
+			return nil, &net.AddrError{Err: "non-IPv6 address", Addr: ip.String()}
+		}
 		return &unix.SockaddrInet6{
-			Port:   sa.Port,
-			ZoneId: sa.ZoneId,
-			Addr:   sa.Addr,
+			Port:   a.Port,
+			ZoneId: uint32(netx.ZoneCache.Index(a.Zone)),
+			Addr:   [16]byte(ip6),
 		}, nil
 	}
-	return nil, errors.New("unsupported sockaddr type")
+	return nil, &net.AddrError{Err: "invalid address family", Addr: ip.String()}
 }
 
 func connect(rawConn syscall.RawConn, rsa unix.Sockaddr, b []byte) (n int, canFallback bool, err error) {
@@ -187,7 +196,7 @@ func connect(rawConn syscall.RawConn, rsa unix.Sockaddr, b []byte) (n int, canFa
 func getSocketError(fd int, call string) error {
 	nerr, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ERROR)
 	if err != nil {
-		return wrapSyscallError("getsockopt", err)
+		return os.NewSyscallError("getsockopt", err)
 	}
 	if nerr != 0 {
 		return os.NewSyscallError(call, syscall.Errno(nerr))

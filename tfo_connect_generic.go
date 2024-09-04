@@ -26,83 +26,33 @@ func boolint(b bool) int {
 	return 0
 }
 
-// A sockaddr represents a TCP, UDP, IP or Unix network endpoint
-// address that can be converted into a syscall.Sockaddr.
-//
-// Copied from src/net/sockaddr_posix.go
-type sockaddr interface {
-	net.Addr
-
-	// family returns the platform-dependent address family
-	// identifier.
-	family() int
-
-	// isWildcard reports whether the address is a wildcard
-	// address.
-	isWildcard() bool
-
-	// sockaddr returns the address converted into a syscall
-	// sockaddr type that implements syscall.Sockaddr
-	// interface. It returns a nil interface when the address is
-	// nil.
-	sockaddr(family int) (syscall.Sockaddr, error)
-
-	// toLocal maps the zero address to a local system address (127.0.0.1 or ::1)
-	toLocal(net string) sockaddr
-}
-
-type tcpSockaddr net.TCPAddr
-
-func (a *tcpSockaddr) Network() string {
-	return "tcp"
-}
-
-func (a *tcpSockaddr) String() string {
-	return (*net.TCPAddr)(a).String()
-}
-
-// Copied from src/net/tcpsock_posix.go
-func (a *tcpSockaddr) family() int {
-	if a == nil || len(a.IP) <= net.IPv4len {
-		return syscall.AF_INET
+// wrapSyscallError takes an error and a syscall name. If the error is
+// a syscall.Errno, it wraps it in a os.SyscallError using the syscall name.
+func wrapSyscallError(name string, err error) error {
+	if _, ok := err.(syscall.Errno); ok {
+		err = os.NewSyscallError(name, err)
 	}
-	if a.IP.To4() != nil {
-		return syscall.AF_INET
+	return err
+}
+
+// Modified from favoriteAddrFamily in src/net/ipsock_posix.go
+func favoriteDialAddrFamily(network string, laddr, raddr *net.TCPAddr) (family int, ipv6only bool) {
+	switch network {
+	case "tcp4":
+		return syscall.AF_INET, false
+	case "tcp6":
+		return syscall.AF_INET6, true
 	}
-	return syscall.AF_INET6
-}
 
-// Copied from src/net/tcpsock_posix.go
-func (a *tcpSockaddr) isWildcard() bool {
-	if a == nil || a.IP == nil {
-		return true
+	if tcpAddrIs4(laddr) || tcpAddrIs4(raddr) {
+		return syscall.AF_INET, false
 	}
-	return a.IP.IsUnspecified()
+	return syscall.AF_INET6, false
 }
 
-//go:linkname ipToSockaddr net.ipToSockaddr
-func ipToSockaddr(family int, ip net.IP, port int, zone string) (syscall.Sockaddr, error)
-
-// Copied from src/net/tcpsock_posix.go
-func (a *tcpSockaddr) sockaddr(family int) (syscall.Sockaddr, error) {
-	if a == nil {
-		return nil, nil
-	}
-	return ipToSockaddr(family, a.IP, a.Port, a.Zone)
+func tcpAddrIs4(a *net.TCPAddr) bool {
+	return a != nil && a.IP.To4() != nil
 }
-
-//go:linkname loopbackIP net.loopbackIP
-func loopbackIP(net string) net.IP
-
-// Modified from src/net/tcpsock_posix.go
-func (a *tcpSockaddr) toLocal(net string) sockaddr {
-	la := *a
-	la.IP = loopbackIP(net)
-	return &la
-}
-
-//go:linkname favoriteAddrFamily net.favoriteAddrFamily
-func favoriteAddrFamily(network string, laddr, raddr sockaddr, mode string) (family int, ipv6only bool)
 
 func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
 	if ctx == nil {

@@ -13,9 +13,7 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -226,15 +224,6 @@ func opAddr(a *net.TCPAddr) net.Addr {
 		return nil
 	}
 	return a
-}
-
-// wrapSyscallError takes an error and a syscall name. If the error is
-// a syscall.Errno, it wraps it in a os.SyscallError using the syscall name.
-func wrapSyscallError(name string, err error) error {
-	if _, ok := err.(syscall.Errno); ok {
-		err = os.NewSyscallError(name, err)
-	}
-	return err
 }
 
 // aLongTimeAgo is a non-zero time, far in the past, used for immediate deadlines.
