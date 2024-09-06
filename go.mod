@@ -4,4 +4,4 @@ go 1.21.0
 
 require golang.org/x/sys v0.25.0
 
-require github.com/database64128/netx-go v0.0.0-20240904075656-1efc34d35e1a
+require github.com/database64128/netx-go v0.0.0-20240905055117-62795b8b054a
