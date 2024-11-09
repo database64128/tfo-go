@@ -1,4 +1,4 @@
-github.com/database64128/netx-go v0.0.0-20241005022450-a32a14a3f736 h1:qi40HtFq3E3OCWh2vjyOrU1XHfxWQjY7PwjDGJFoA0k=
-github.com/database64128/netx-go v0.0.0-20241005022450-a32a14a3f736/go.mod h1:8fN4B0qX2fUQzmRAo6fvA4RdsTvRLSEhIEwyzxsbiIo=
+github.com/database64128/netx-go v0.0.0-20241108022556-a852f1178f80 h1:xU5Gi8VbE6l4jH4ON5WsztJumtHvn0RTkJQRuRmIEuc=
+github.com/database64128/netx-go v0.0.0-20241108022556-a852f1178f80/go.mod h1:znt7Us9ZtA3HDQEa09syxK5d2x5Dl3BW9bEZVaa/7VE=
 golang.org/x/sys v0.27.0 h1:wBqf8DvsY9Y/2P8gAfPDEYNuS30J4lPHJxXSb/nJZ+s=
 golang.org/x/sys v0.27.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
