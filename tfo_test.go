@@ -537,6 +537,7 @@ func testAddrFunctions(t *testing.T, lc ListenConfig, d Dialer) {
 }
 
 func write(w io.Writer, data []byte, t *testing.T) {
+	t.Helper()
 	dataLen := len(data)
 	n, err := w.Write(data)
 	if err != nil {
@@ -549,6 +550,7 @@ func write(w io.Writer, data []byte, t *testing.T) {
 }
 
 func writeWithReadFrom(w io.ReaderFrom, data []byte, t *testing.T) {
+	t.Helper()
 	r := bytes.NewReader(data)
 	n, err := w.ReadFrom(r)
 	if err != nil {
@@ -562,6 +564,7 @@ func writeWithReadFrom(w io.ReaderFrom, data []byte, t *testing.T) {
 }
 
 func readExactlyOneByte(r io.Reader, expectedByte byte, t *testing.T) {
+	t.Helper()
 	b := make([]byte, 1)
 	n, err := r.Read(b)
 	if err != nil {
@@ -576,6 +579,7 @@ func readExactlyOneByte(r io.Reader, expectedByte byte, t *testing.T) {
 }
 
 func readUntilEOF(r io.Reader, expectedData []byte, t *testing.T) {
+	t.Helper()
 	b, err := io.ReadAll(r)
 	if err != nil {
 		t.Error(err)
