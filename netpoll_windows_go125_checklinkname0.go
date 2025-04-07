@@ -1,4 +1,4 @@
-//go:build windows && !go1.25 && tfogo_checklinkname0
+//go:build windows && go1.25 && tfogo_checklinkname0
 
 package tfo
 
@@ -31,6 +31,11 @@ type pFD struct {
 	// Used to implement pread/pwrite.
 	l sync.Mutex
 
+	// The file offset for the next read or write.
+	// Overlapped IO operations don't use the real file pointer,
+	// so we need to keep track of the offset ourselves.
+	offset int64
+
 	// For console I/O.
 	lastbits       []byte   // first few bytes of the last incomplete rune in last write
 	readuint16     []uint16 // buffer to hold uint16s obtained with ReadConsole
@@ -55,4 +60,11 @@ type pFD struct {
 
 	// The kind of this file.
 	kind byte
+
+	// Whether FILE_FLAG_OVERLAPPED was not set when opening the file.
+	isBlocking bool
+
+	// Initialization parameters.
+	initIOOnce sync.Once
+	initIOErr  error // only used in the net package
 }
