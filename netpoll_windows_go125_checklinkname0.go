@@ -4,6 +4,7 @@ package tfo
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/sys/windows"
 )
@@ -64,7 +65,5 @@ type pFD struct {
 	// Whether FILE_FLAG_OVERLAPPED was not set when opening the file.
 	isBlocking bool
 
-	// Initialization parameters.
-	initIOOnce sync.Once
-	initIOErr  error // only used in the net package
+	disassociated atomic.Bool
 }

@@ -15,7 +15,7 @@ import (
 // Copied from src/internal/poll/fd_windows.go
 type operation struct {
 	// Used by IOCP interface, it must be first field
-	// of the struct, as our code rely on it.
+	// of the struct, as our code relies on it.
 	o windows.Overlapped
 
 	// fields used by runtime.netpoll
