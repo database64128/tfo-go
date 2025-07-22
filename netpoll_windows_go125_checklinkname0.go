@@ -56,7 +56,7 @@ type pFD struct {
 	// message based socket connection.
 	ZeroReadIsEOF bool
 
-	// Whether this is a file rather than a network socket.
+	// Whether the handle is owned by os.File.
 	isFile bool
 
 	// The kind of this file.
