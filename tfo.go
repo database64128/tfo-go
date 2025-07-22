@@ -62,6 +62,11 @@ func (lc *ListenConfig) tfoNeedsFallback() bool {
 	return lc.Fallback && (comptimeListenNoTFO || runtimeListenNoTFO.Load())
 }
 
+// TFO returns true if the next Listen call will attempt to enable TFO.
+func (lc *ListenConfig) TFO() bool {
+	return !lc.tfoDisabled() && !lc.tfoNeedsFallback()
+}
+
 // Listen is like [net.ListenConfig.Listen] but enables TFO whenever possible,
 // unless [ListenConfig.Backlog] is negative or [ListenConfig.DisableTFO] is set to true.
 func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (net.Listener, error) {
@@ -159,6 +164,11 @@ func (d *Dialer) dialAndWriteTCPConn(ctx context.Context, network, address strin
 		return nil, err
 	}
 	return c.(*net.TCPConn), nil
+}
+
+// TFO returns true if the next dial call will attempt to enable TFO.
+func (d *Dialer) TFO() bool {
+	return !d.DisableTFO && (!d.Fallback || !comptimeDialNoTFO && runtimeDialTFOSupport.load() != dialTFOSupportNone)
 }
 
 // DialContext is like [net.Dialer.DialContext] but enables TFO whenever possible,

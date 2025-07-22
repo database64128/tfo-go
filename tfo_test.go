@@ -54,6 +54,7 @@ type listenConfigTestCase struct {
 	name               string
 	listenConfig       ListenConfig
 	mptcp              mptcpStatus
+	wantTFO            bool
 	setRuntimeFallback runtimeFallbackHelperFunc
 }
 
@@ -68,35 +69,162 @@ func (c listenConfigTestCase) checkSkip(t *testing.T) {
 }
 
 var listenConfigCases = []listenConfigTestCase{
-	{"TFO", ListenConfig{}, mptcpUseDefault, runtimeFallbackAsIs},
-	{"TFO+RuntimeNoTFO", ListenConfig{}, mptcpUseDefault, runtimeFallbackSetListenNoTFO},
-	{"TFO+MPTCPEnabled", ListenConfig{}, mptcpEnabled, runtimeFallbackAsIs},
-	{"TFO+MPTCPEnabled+RuntimeNoTFO", ListenConfig{}, mptcpEnabled, runtimeFallbackSetListenNoTFO},
-	{"TFO+MPTCPDisabled", ListenConfig{}, mptcpDisabled, runtimeFallbackAsIs},
-	{"TFO+MPTCPDisabled+RuntimeNoTFO", ListenConfig{}, mptcpDisabled, runtimeFallbackSetListenNoTFO},
-	{"TFO+Backlog1024", ListenConfig{Backlog: 1024}, mptcpUseDefault, runtimeFallbackAsIs},
-	{"TFO+Backlog1024+MPTCPEnabled", ListenConfig{Backlog: 1024}, mptcpEnabled, runtimeFallbackAsIs},
-	{"TFO+Backlog1024+MPTCPDisabled", ListenConfig{Backlog: 1024}, mptcpDisabled, runtimeFallbackAsIs},
-	{"TFO+Backlog-1", ListenConfig{Backlog: -1}, mptcpUseDefault, runtimeFallbackAsIs},
-	{"TFO+Backlog-1+MPTCPEnabled", ListenConfig{Backlog: -1}, mptcpEnabled, runtimeFallbackAsIs},
-	{"TFO+Backlog-1+MPTCPDisabled", ListenConfig{Backlog: -1}, mptcpDisabled, runtimeFallbackAsIs},
-	{"TFO+Fallback", ListenConfig{Fallback: true}, mptcpUseDefault, runtimeFallbackAsIs},
-	{"TFO+Fallback+RuntimeNoTFO", ListenConfig{Fallback: true}, mptcpUseDefault, runtimeFallbackSetListenNoTFO},
-	{"TFO+Fallback+MPTCPEnabled", ListenConfig{Fallback: true}, mptcpEnabled, runtimeFallbackAsIs},
-	{"TFO+Fallback+MPTCPEnabled+RuntimeNoTFO", ListenConfig{Fallback: true}, mptcpEnabled, runtimeFallbackSetListenNoTFO},
-	{"TFO+Fallback+MPTCPDisabled", ListenConfig{Fallback: true}, mptcpDisabled, runtimeFallbackAsIs},
-	{"TFO+Fallback+MPTCPDisabled+RuntimeNoTFO", ListenConfig{Fallback: true}, mptcpDisabled, runtimeFallbackSetListenNoTFO},
-	{"NoTFO", ListenConfig{DisableTFO: true}, mptcpUseDefault, runtimeFallbackAsIs},
-	{"NoTFO+MPTCPEnabled", ListenConfig{DisableTFO: true}, mptcpEnabled, runtimeFallbackAsIs},
-	{"NoTFO+MPTCPDisabled", ListenConfig{DisableTFO: true}, mptcpDisabled, runtimeFallbackAsIs},
+	{
+		name:               "TFO",
+		listenConfig:       ListenConfig{},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+RuntimeNoTFO",
+		listenConfig:       ListenConfig{},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackSetListenNoTFO,
+	},
+	{
+		name:               "TFO+MPTCPEnabled",
+		listenConfig:       ListenConfig{},
+		mptcp:              mptcpEnabled,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+MPTCPEnabled+RuntimeNoTFO",
+		listenConfig:       ListenConfig{},
+		mptcp:              mptcpEnabled,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackSetListenNoTFO,
+	},
+	{
+		name:               "TFO+MPTCPDisabled",
+		listenConfig:       ListenConfig{},
+		mptcp:              mptcpDisabled,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+MPTCPDisabled+RuntimeNoTFO",
+		listenConfig:       ListenConfig{},
+		mptcp:              mptcpDisabled,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackSetListenNoTFO,
+	},
+	{
+		name:               "TFO+Backlog1024",
+		listenConfig:       ListenConfig{Backlog: 1024},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Backlog1024+MPTCPEnabled",
+		listenConfig:       ListenConfig{Backlog: 1024},
+		mptcp:              mptcpEnabled,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Backlog1024+MPTCPDisabled",
+		listenConfig:       ListenConfig{Backlog: 1024},
+		mptcp:              mptcpDisabled,
+		wantTFO:            true,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Backlog-1",
+		listenConfig:       ListenConfig{Backlog: -1},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Backlog-1+MPTCPEnabled",
+		listenConfig:       ListenConfig{Backlog: -1},
+		mptcp:              mptcpEnabled,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Backlog-1+MPTCPDisabled",
+		listenConfig:       ListenConfig{Backlog: -1},
+		mptcp:              mptcpDisabled,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Fallback",
+		listenConfig:       ListenConfig{Fallback: true},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            !comptimeListenNoTFO,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Fallback+RuntimeNoTFO",
+		listenConfig:       ListenConfig{Fallback: true},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackSetListenNoTFO,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPEnabled",
+		listenConfig:       ListenConfig{Fallback: true},
+		mptcp:              mptcpEnabled,
+		wantTFO:            !comptimeListenNoTFO,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPEnabled+RuntimeNoTFO",
+		listenConfig:       ListenConfig{Fallback: true},
+		mptcp:              mptcpEnabled,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackSetListenNoTFO,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPDisabled",
+		listenConfig:       ListenConfig{Fallback: true},
+		mptcp:              mptcpDisabled,
+		wantTFO:            !comptimeListenNoTFO,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPDisabled+RuntimeNoTFO",
+		listenConfig:       ListenConfig{Fallback: true},
+		mptcp:              mptcpDisabled,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackSetListenNoTFO,
+	},
+	{
+		name:               "NoTFO",
+		listenConfig:       ListenConfig{DisableTFO: true},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "NoTFO+MPTCPEnabled",
+		listenConfig:       ListenConfig{DisableTFO: true},
+		mptcp:              mptcpEnabled,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "NoTFO+MPTCPDisabled",
+		listenConfig:       ListenConfig{DisableTFO: true},
+		mptcp:              mptcpDisabled,
+		wantTFO:            false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
 }
 
 type dialerTestCase struct {
 	name               string
 	dialer             Dialer
 	mptcp              mptcpStatus
-	setRuntimeFallback runtimeFallbackHelperFunc
+	wantTFO            bool
 	linuxOnly          bool
+	setRuntimeFallback runtimeFallbackHelperFunc
 }
 
 func (c dialerTestCase) shouldSkip() bool {
@@ -120,27 +248,174 @@ func (c dialerTestCase) checkSkip(t *testing.T) {
 }
 
 var dialerCases = []dialerTestCase{
-	{"TFO", Dialer{}, mptcpUseDefault, runtimeFallbackAsIs, false},
-	{"TFO+RuntimeNoTFO", Dialer{}, mptcpUseDefault, runtimeFallbackSetDialNoTFO, false},
-	{"TFO+RuntimeLinuxSendto", Dialer{}, mptcpUseDefault, runtimeFallbackSetDialLinuxSendto, true},
-	{"TFO+MPTCPEnabled", Dialer{}, mptcpEnabled, runtimeFallbackAsIs, false},
-	{"TFO+MPTCPEnabled+RuntimeNoTFO", Dialer{}, mptcpEnabled, runtimeFallbackSetDialNoTFO, false},
-	{"TFO+MPTCPEnabled+RuntimeLinuxSendto", Dialer{}, mptcpEnabled, runtimeFallbackSetDialLinuxSendto, true},
-	{"TFO+MPTCPDisabled", Dialer{}, mptcpDisabled, runtimeFallbackAsIs, false},
-	{"TFO+MPTCPDisabled+RuntimeNoTFO", Dialer{}, mptcpDisabled, runtimeFallbackSetDialNoTFO, false},
-	{"TFO+MPTCPDisabled+RuntimeLinuxSendto", Dialer{}, mptcpDisabled, runtimeFallbackSetDialLinuxSendto, true},
-	{"TFO+Fallback", Dialer{Fallback: true}, mptcpUseDefault, runtimeFallbackAsIs, false},
-	{"TFO+Fallback+RuntimeNoTFO", Dialer{Fallback: true}, mptcpUseDefault, runtimeFallbackSetDialNoTFO, false},
-	{"TFO+Fallback+RuntimeLinuxSendto", Dialer{Fallback: true}, mptcpUseDefault, runtimeFallbackSetDialLinuxSendto, true},
-	{"TFO+Fallback+MPTCPEnabled", Dialer{Fallback: true}, mptcpEnabled, runtimeFallbackAsIs, false},
-	{"TFO+Fallback+MPTCPEnabled+RuntimeNoTFO", Dialer{Fallback: true}, mptcpEnabled, runtimeFallbackSetDialNoTFO, false},
-	{"TFO+Fallback+MPTCPEnabled+RuntimeLinuxSendto", Dialer{Fallback: true}, mptcpEnabled, runtimeFallbackSetDialLinuxSendto, true},
-	{"TFO+Fallback+MPTCPDisabled", Dialer{Fallback: true}, mptcpDisabled, runtimeFallbackAsIs, false},
-	{"TFO+Fallback+MPTCPDisabled+RuntimeNoTFO", Dialer{Fallback: true}, mptcpDisabled, runtimeFallbackSetDialNoTFO, false},
-	{"TFO+Fallback+MPTCPDisabled+RuntimeLinuxSendto", Dialer{Fallback: true}, mptcpDisabled, runtimeFallbackSetDialLinuxSendto, true},
-	{"NoTFO", Dialer{DisableTFO: true}, mptcpUseDefault, runtimeFallbackAsIs, false},
-	{"NoTFO+MPTCPEnabled", Dialer{DisableTFO: true}, mptcpEnabled, runtimeFallbackAsIs, false},
-	{"NoTFO+MPTCPDisabled", Dialer{DisableTFO: true}, mptcpDisabled, runtimeFallbackAsIs, false},
+	{
+		name:               "TFO",
+		dialer:             Dialer{},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            true,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+RuntimeNoTFO",
+		dialer:             Dialer{},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            true,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackSetDialNoTFO,
+	},
+	{
+		name:               "TFO+RuntimeLinuxSendto",
+		dialer:             Dialer{},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            true,
+		linuxOnly:          true,
+		setRuntimeFallback: runtimeFallbackSetDialLinuxSendto,
+	},
+	{
+		name:               "TFO+MPTCPEnabled",
+		dialer:             Dialer{},
+		mptcp:              mptcpEnabled,
+		wantTFO:            true,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+MPTCPEnabled+RuntimeNoTFO",
+		dialer:             Dialer{},
+		mptcp:              mptcpEnabled,
+		wantTFO:            true,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackSetDialNoTFO,
+	},
+	{
+		name:               "TFO+MPTCPEnabled+RuntimeLinuxSendto",
+		dialer:             Dialer{},
+		mptcp:              mptcpEnabled,
+		wantTFO:            true,
+		linuxOnly:          true,
+		setRuntimeFallback: runtimeFallbackSetDialLinuxSendto,
+	},
+	{
+		name:               "TFO+MPTCPDisabled",
+		dialer:             Dialer{},
+		mptcp:              mptcpDisabled,
+		wantTFO:            true,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+MPTCPDisabled+RuntimeNoTFO",
+		dialer:             Dialer{},
+		mptcp:              mptcpDisabled,
+		wantTFO:            true,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackSetDialNoTFO,
+	},
+	{
+		name:               "TFO+MPTCPDisabled+RuntimeLinuxSendto",
+		dialer:             Dialer{},
+		mptcp:              mptcpDisabled,
+		wantTFO:            true,
+		linuxOnly:          true,
+		setRuntimeFallback: runtimeFallbackSetDialLinuxSendto,
+	},
+	{
+		name:               "TFO+Fallback",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            !comptimeDialNoTFO,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Fallback+RuntimeNoTFO",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            false,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackSetDialNoTFO,
+	},
+	{
+		name:               "TFO+Fallback+RuntimeLinuxSendto",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            !comptimeDialNoTFO,
+		linuxOnly:          true,
+		setRuntimeFallback: runtimeFallbackSetDialLinuxSendto,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPEnabled",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpEnabled,
+		wantTFO:            !comptimeDialNoTFO,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPEnabled+RuntimeNoTFO",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpEnabled,
+		wantTFO:            false,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackSetDialNoTFO,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPEnabled+RuntimeLinuxSendto",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpEnabled,
+		wantTFO:            !comptimeDialNoTFO,
+		linuxOnly:          true,
+		setRuntimeFallback: runtimeFallbackSetDialLinuxSendto,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPDisabled",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpDisabled,
+		wantTFO:            !comptimeDialNoTFO,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPDisabled+RuntimeNoTFO",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpDisabled,
+		wantTFO:            false,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackSetDialNoTFO,
+	},
+	{
+		name:               "TFO+Fallback+MPTCPDisabled+RuntimeLinuxSendto",
+		dialer:             Dialer{Fallback: true},
+		mptcp:              mptcpDisabled,
+		wantTFO:            !comptimeDialNoTFO,
+		linuxOnly:          true,
+		setRuntimeFallback: runtimeFallbackSetDialLinuxSendto,
+	},
+	{
+		name:               "NoTFO",
+		dialer:             Dialer{DisableTFO: true},
+		mptcp:              mptcpUseDefault,
+		wantTFO:            false,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "NoTFO+MPTCPEnabled",
+		dialer:             Dialer{DisableTFO: true},
+		mptcp:              mptcpEnabled,
+		wantTFO:            false,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
+	{
+		name:               "NoTFO+MPTCPDisabled",
+		dialer:             Dialer{DisableTFO: true},
+		mptcp:              mptcpDisabled,
+		wantTFO:            false,
+		linuxOnly:          false,
+		setRuntimeFallback: runtimeFallbackAsIs,
+	},
 }
 
 type testCase struct {
@@ -345,6 +620,30 @@ func TestDialCtrlFn(t *testing.T) {
 			testDialCtrlFn(t, c.dialer, address)
 			testDialCtrlCtxFn(t, c.dialer, address)
 			testDialCtrlCtxFnSupersedesCtrlFn(t, c.dialer, address)
+		})
+	}
+}
+
+// TestListenTFOStatus ensures that [ListenConfig.TFO] reports the correct status.
+func TestListenTFOStatus(t *testing.T) {
+	for _, c := range listenConfigCases {
+		t.Run(c.name, func(t *testing.T) {
+			c.setRuntimeFallback(t)
+			if got := c.listenConfig.TFO(); got != c.wantTFO {
+				t.Errorf("c.listenConfig.TFO() = %v, want %v", got, c.wantTFO)
+			}
+		})
+	}
+}
+
+// TestDialTFOStatus ensures that [Dialer.TFO] reports the correct status.
+func TestDialTFOStatus(t *testing.T) {
+	for _, c := range dialerCases {
+		t.Run(c.name, func(t *testing.T) {
+			c.setRuntimeFallback(t)
+			if got := c.dialer.TFO(); got != c.wantTFO {
+				t.Errorf("c.dialer.TFO() = %v, want %v", got, c.wantTFO)
+			}
 		})
 	}
 }
