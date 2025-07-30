@@ -21,22 +21,18 @@ type operation struct {
 	mode       int32
 
 	// fields used only by net package
-	buf   windows.WSABuf
-	msg   windows.WSAMsg
-	sa    windows.Sockaddr
-	rsa   *windows.RawSockaddrAny
-	rsan  int32
-	flags uint32
-	qty   uint32
-	bufs  []windows.WSABuf
+	buf  windows.WSABuf
+	rsa  *windows.RawSockaddrAny
+	bufs []windows.WSABuf
 }
 
 //go:linkname execIO internal/poll.execIO
-func execIO(fd *pFD, o *operation, submit func(o *operation) error) (int, error)
+func execIO(fd *pFD, o *operation, submit func(o *operation) (uint32, error)) (int, error)
 
 func (fd *pFD) ConnectEx(ra windows.Sockaddr, b []byte) (n int, err error) {
-	n, err = execIO(fd, &fd.wop, func(o *operation) error {
-		return windows.ConnectEx(o.fd.Sysfd, ra, &b[0], uint32(len(b)), &o.qty, &o.o)
+	n, err = execIO(fd, &fd.wop, func(o *operation) (qty uint32, err error) {
+		err = windows.ConnectEx(fd.Sysfd, ra, &b[0], uint32(len(b)), &qty, &o.o)
+		return qty, err
 	})
 	return
 }
