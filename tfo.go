@@ -248,28 +248,14 @@ type writeDeadliner interface {
 // If the given context can be canceled, it will spin up an interruptor goroutine to cancel the write operation
 // when the context is canceled.
 func connWriteFunc[C writeDeadliner](ctx context.Context, c C, fn func(C) error) (err error) {
-	if ctxDone := ctx.Done(); ctxDone != nil {
-		done := make(chan struct{})
-		interruptRes := make(chan error)
-
-		defer func() {
-			close(done)
-			if ctxErr := <-interruptRes; ctxErr != nil && err == nil {
-				err = ctxErr
-			}
-		}()
-
-		go func() {
-			select {
-			case <-ctxDone:
-				c.SetWriteDeadline(aLongTimeAgo)
-				interruptRes <- ctx.Err()
-			case <-done:
-				interruptRes <- nil
-			}
-		}()
-	}
-
+	stop := context.AfterFunc(ctx, func() {
+		_ = c.SetWriteDeadline(aLongTimeAgo)
+	})
+	defer func() {
+		if !stop() && err == nil {
+			err = ctx.Err()
+		}
+	}()
 	return fn(c)
 }
 
