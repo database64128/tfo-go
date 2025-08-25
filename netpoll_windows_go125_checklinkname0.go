@@ -1,4 +1,4 @@
-//go:build windows && go1.25 && tfogo_checklinkname0
+//go:build windows && go1.25 && !go1.26 && tfogo_checklinkname0
 
 package tfo
 
