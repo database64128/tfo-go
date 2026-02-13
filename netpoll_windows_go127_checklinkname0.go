@@ -1,10 +1,9 @@
-//go:build windows && go1.26 && !go1.27 && tfogo_checklinkname0
+//go:build windows && go1.27 && tfogo_checklinkname0
 
 package tfo
 
 import (
 	"runtime"
-	"sync/atomic"
 	"unsafe"
 	_ "unsafe"
 
@@ -40,7 +39,9 @@ type pFD struct {
 	// Semaphore signaled when file is closed.
 	csema uint32
 
-	skipSyncNotif bool
+	// Don't wait from completion port notifications for successful
+	// operations that complete synchronously.
+	waitOnSuccess bool
 
 	// Whether this is a streaming descriptor, as opposed to a
 	// packet-based descriptor like a UDP socket.
@@ -59,7 +60,8 @@ type pFD struct {
 	// Whether FILE_FLAG_OVERLAPPED was not set when opening the file.
 	isBlocking bool
 
-	disassociated atomic.Bool
+	// Whether the handle is currently associated with the IOCP.
+	associated bool
 
 	// readPinner and writePinner are automatically unpinned
 	// before execIO returns.
@@ -68,12 +70,12 @@ type pFD struct {
 }
 
 //go:linkname execIO internal/poll.(*FD).execIO
-func execIO(fd *pFD, mode int, submit func(o *operation) (uint32, error)) (int, error)
+func execIO(fd *pFD, mode int, submit func(o *operation) (uint32, error), buf []byte) (int, error)
 
 func (fd *pFD) ConnectEx(ra windows.Sockaddr, b []byte) (n int, err error) {
 	n, err = execIO(fd, 'w', func(o *operation) (qty uint32, err error) {
 		err = windows.ConnectEx(fd.Sysfd, ra, unsafe.SliceData(b), uint32(len(b)), &qty, &o.o)
 		return qty, err
-	})
+	}, b)
 	return
 }
