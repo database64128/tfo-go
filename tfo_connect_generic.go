@@ -8,7 +8,6 @@ import (
 	"os"
 	"syscall"
 	"time"
-	_ "unsafe"
 )
 
 const comptimeDialNoTFO = false

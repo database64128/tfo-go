@@ -1,7 +1,9 @@
 package tfo
 
 import (
-	_ "unsafe"
+	"os"
+	"strconv"
+	"sync"
 
 	"golang.org/x/sys/unix"
 )
@@ -19,15 +21,26 @@ func setTFOListener(fd uintptr) error {
 
 func setTFOListenerWithBacklog(fd uintptr, backlog int) error {
 	if backlog == 0 {
-		backlog = listenerBacklog()
+		backlog = maxListenerBacklog()
 	}
 	return setTFO(int(fd), backlog)
 }
 
-// listenerBacklog is linked from src/net/net.go
-//
-//go:linkname listenerBacklog net.listenerBacklog
-func listenerBacklog() int
+// maxListenerBacklog returns a cached value of net.core.somaxconn, which is the maximum
+// listen(2) backlog on Linux. The kernel clamps the TFO backlog to this value too.
+var maxListenerBacklog = sync.OnceValue(func() int {
+	// Simplified from src/net/sock_linux.go
+	b, err := os.ReadFile("/proc/sys/net/core/somaxconn")
+	if err != nil {
+		return unix.SOMAXCONN
+	}
+
+	backlog, err := strconv.Atoi(string(b))
+	if err != nil {
+		return unix.SOMAXCONN
+	}
+	return backlog
+})
 
 func setTFODialer(fd uintptr) error {
 	return unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_FASTOPEN_CONNECT, 1)
