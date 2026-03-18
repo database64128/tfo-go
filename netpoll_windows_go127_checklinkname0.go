@@ -70,12 +70,12 @@ type pFD struct {
 }
 
 //go:linkname execIO internal/poll.(*FD).execIO
-func execIO(fd *pFD, mode int, submit func(o *operation) (uint32, error), buf []byte) (int, error)
+func execIO(fd *pFD, mode int, submit func(o *operation) (uint32, error), pinPtrs ...any) (int, error)
 
 func (fd *pFD) ConnectEx(ra windows.Sockaddr, b []byte) (n int, err error) {
 	n, err = execIO(fd, 'w', func(o *operation) (qty uint32, err error) {
 		err = windows.ConnectEx(fd.Sysfd, ra, unsafe.SliceData(b), uint32(len(b)), &qty, &o.o)
 		return qty, err
-	}, b)
+	}, unsafe.SliceData(b))
 	return
 }
