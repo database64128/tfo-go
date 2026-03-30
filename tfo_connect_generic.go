@@ -264,7 +264,11 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			return c, nil
 		}
 		if firstErr == nil {
-			firstErr = &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: err}
+			var ok bool
+			firstErr, ok = err.(*net.OpError)
+			if !ok {
+				firstErr = &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: err}
+			}
 		}
 	}
 
