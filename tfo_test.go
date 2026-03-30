@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"sync"
@@ -494,28 +495,15 @@ type discardTCPServer struct {
 }
 
 // newDiscardTCPServer creates a new [discardTCPServer] that listens on a random port.
-func newDiscardTCPServer(ctx context.Context) (*discardTCPServer, error) {
+func newDiscardTCPServer(t *testing.T) (*discardTCPServer, error) {
 	lc := ListenConfig{DisableTFO: comptimeListenNoTFO}
-	ln, err := lc.Listen(ctx, "tcp", "[::1]:")
+	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
 	if err != nil {
 		return nil, err
 	}
-	return &discardTCPServer{ln: ln.(*net.TCPListener)}, nil
-}
 
-// Addr returns the server's address.
-func (s *discardTCPServer) Addr() *net.TCPAddr {
-	return s.ln.Addr().(*net.TCPAddr)
-}
-
-// Start spins up a new goroutine that accepts and drains incoming connections
-// until [discardTCPServer.Close] is called.
-func (s *discardTCPServer) Start(t *testing.T) {
-	s.wg.Add(1)
-
-	go func() {
-		defer s.wg.Done()
-
+	s := &discardTCPServer{ln: ln.(*net.TCPListener)}
+	s.wg.Go(func() {
 		for {
 			c, err := s.ln.AcceptTCP()
 			if err != nil {
@@ -536,7 +524,13 @@ func (s *discardTCPServer) Start(t *testing.T) {
 				t.Logf("Discarded %d bytes from %s", n, c.RemoteAddr())
 			}()
 		}
-	}()
+	})
+	return s, nil
+}
+
+// AddrPort returns the server's listen address.
+func (s *discardTCPServer) AddrPort() netip.AddrPort {
+	return s.ln.Addr().(*net.TCPAddr).AddrPort()
 }
 
 // Close interrupts all running accept goroutines, waits for them to finish,
@@ -556,14 +550,14 @@ var (
 )
 
 func testListenDialUDP(t *testing.T, lc ListenConfig, d Dialer) {
-	pc, err := lc.ListenPacket(context.Background(), "udp", "[::1]:")
+	pc, err := lc.ListenPacket(t.Context(), "udp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	uc := pc.(*net.UDPConn)
 	defer uc.Close()
 
-	c, err := d.Dial("udp", uc.LocalAddr().String(), hello)
+	c, err := d.DialContext(t.Context(), "udp", uc.LocalAddr().String(), hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,13 +599,13 @@ func TestListenCtrlFn(t *testing.T) {
 // TestDialCtrlFn ensures that [Dialer]'s user-provided control functions
 // are used in the same way as [net.Dialer].
 func TestDialCtrlFn(t *testing.T) {
-	s, err := newDiscardTCPServer(context.Background())
+	s, err := newDiscardTCPServer(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 
-	address := s.Addr().String()
+	address := s.AddrPort().String()
 
 	for _, c := range dialerCases {
 		t.Run(c.name, func(t *testing.T) {
@@ -716,7 +710,7 @@ func testListenCtrlFn(t *testing.T, lc ListenConfig) {
 		})
 	}
 
-	ln, err := lc.Listen(context.Background(), "tcp", "")
+	ln, err := lc.Listen(t.Context(), "tcp", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,7 +732,7 @@ func testDialCtrlFn(t *testing.T, d Dialer, address string) {
 		})
 	}
 
-	c, err := d.Dial("tcp", address, hello)
+	c, err := d.DialContext(t.Context(), "tcp", address, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,7 +761,7 @@ func testDialCtrlCtxFn(t *testing.T, d Dialer, address string) {
 		})
 	}
 
-	ctx := context.WithValue(context.Background(), ctxKey, ctxVal)
+	ctx := context.WithValue(t.Context(), ctxKey, ctxVal)
 	c, err := d.DialContext(ctx, "tcp", address, hello)
 	if err != nil {
 		t.Fatal(err)
@@ -794,7 +788,7 @@ func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer, address string) {
 		return nil
 	}
 
-	c, err := d.Dial("tcp", address, hello)
+	c, err := d.DialContext(t.Context(), "tcp", address, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -806,7 +800,7 @@ func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer, address string) {
 }
 
 func testAddrFunctions(t *testing.T, lc ListenConfig, d Dialer) {
-	ln, err := lc.Listen(context.Background(), "tcp", "[::1]:")
+	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -821,7 +815,7 @@ func testAddrFunctions(t *testing.T, lc ListenConfig, d Dialer) {
 		t.Fatalf("expected non-zero port, got %d", addr.Port)
 	}
 
-	c, err := d.Dial("tcp", addr.String(), hello)
+	c, err := d.DialContext(t.Context(), "tcp", addr.String(), hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -893,7 +887,7 @@ func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer)
 	t.Logf("c->s payload: %v", helloworld)
 	t.Logf("s->c payload: %v", worldhello)
 
-	ln, err := lc.Listen(context.Background(), "tcp", "[::1]:")
+	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -918,7 +912,7 @@ func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer)
 		close(ctrlCh)
 	}()
 
-	c, err := d.Dial("tcp", ln.Addr().String(), hello)
+	c, err := d.DialContext(t.Context(), "tcp", ln.Addr().String(), hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -935,7 +929,7 @@ func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer)
 	t.Logf("c->s payload: %v", helloworld)
 	t.Logf("s->c payload: %v", worldhello)
 
-	ln, err := lc.Listen(context.Background(), "tcp", "[::1]:")
+	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -960,7 +954,7 @@ func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer)
 		close(ctrlCh)
 	}()
 
-	c, err := d.Dial("tcp", ln.Addr().String(), nil)
+	c, err := d.DialContext(t.Context(), "tcp", ln.Addr().String(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -978,7 +972,7 @@ func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer) {
 	t.Logf("c->s payload: %v", helloworld)
 	t.Logf("s->c payload: %v", worldhello)
 
-	ln, err := lc.Listen(context.Background(), "tcp", "[::1]:")
+	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1003,7 +997,7 @@ func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer) {
 		close(ctrlCh)
 	}()
 
-	c, err := d.Dial("tcp", ln.Addr().String(), hello)
+	c, err := d.DialContext(t.Context(), "tcp", ln.Addr().String(), hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1019,7 +1013,7 @@ func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer) {
 func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer) {
 	t.Logf("payload: %v", helloWorldSentence)
 
-	ln, err := lc.Listen(context.Background(), "tcp", "[::1]:")
+	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1042,7 +1036,7 @@ func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer) {
 		close(ctrlCh)
 	}()
 
-	c, err := d.Dial("tcp", ln.Addr().String(), helloWorldSentence[:1])
+	c, err := d.DialContext(t.Context(), "tcp", ln.Addr().String(), helloWorldSentence[:1])
 	if err != nil {
 		t.Fatal(err)
 	}

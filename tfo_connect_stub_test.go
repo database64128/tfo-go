@@ -3,20 +3,21 @@
 package tfo
 
 import (
-	"context"
+	"net/netip"
 	"testing"
 )
 
 func TestDialTFO(t *testing.T) {
-	s, err := newDiscardTCPServer(context.Background())
+	s, err := newDiscardTCPServer(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 
-	addr := s.Addr()
+	var d Dialer
+	addrPort := s.AddrPort()
 
-	c, err := Dial("tcp", addr.String(), hello)
+	c, err := d.DialContext(t.Context(), "tcp", addrPort.String(), hello)
 	if c != nil {
 		t.Error("Expected nil connection")
 	}
@@ -24,7 +25,7 @@ func TestDialTFO(t *testing.T) {
 		t.Errorf("Expected ErrPlatformUnsupported, got %v", err)
 	}
 
-	tc, err := DialTCP("tcp", nil, addr, hello)
+	tc, err := d.DialTCP(t.Context(), "tcp", netip.AddrPort{}, addrPort, hello)
 	if tc != nil {
 		t.Error("Expected nil connection")
 	}
