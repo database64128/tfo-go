@@ -17,7 +17,9 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 	// However, setting TCP_FASTOPEN requires being in the TCPS_LISTEN state,
 	// which means setting it after listen().
 
+	// Copy these values to avoid referencing lc in llc.Control.
 	ctrlFn := lc.Control
+	fallback := lc.Fallback
 	llc := *lc
 	llc.Control = func(network, address string, c syscall.RawConn) (err error) {
 		if ctrlFn != nil {
@@ -33,7 +35,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 		}
 
 		if err != nil {
-			if !lc.Fallback || !errors.Is(err, errors.ErrUnsupported) {
+			if !fallback || !errors.Is(err, errors.ErrUnsupported) {
 				return os.NewSyscallError("setsockopt(TCP_FASTOPEN_FORCE_ENABLE)", err)
 			}
 			runtimeListenNoTFO.Store(true)
@@ -61,7 +63,7 @@ func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) 
 
 	if err != nil {
 		ln.Close()
-		if !lc.Fallback || !errors.Is(err, errors.ErrUnsupported) {
+		if !fallback || !errors.Is(err, errors.ErrUnsupported) {
 			return nil, os.NewSyscallError("setsockopt(TCP_FASTOPEN)", err)
 		}
 		runtimeListenNoTFO.Store(true)

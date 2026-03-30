@@ -32,7 +32,8 @@ func (a *atomicDialTFOSupport) casLinuxSendto() bool {
 }
 
 func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
-	if d.Fallback {
+	fallback := d.Fallback
+	if fallback {
 		switch runtimeDialTFOSupport.load() {
 		case dialTFOSupportNone:
 			return d.dialAndWriteTCPConn(ctx, network, address, b)
@@ -45,6 +46,7 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 	ctrlCtxFn := d.ControlContext
 	ctrlFn := d.Control
 	ld := *d
+	// Avoid referencing d in ld.ControlContext to prevent it from being captured by the closure.
 	ld.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) (err error) {
 		switch {
 		case ctrlCtxFn != nil:
@@ -64,7 +66,7 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 		}
 
 		if err != nil {
-			if d.Fallback && errors.Is(err, errors.ErrUnsupported) {
+			if fallback && errors.Is(err, errors.ErrUnsupported) {
 				canFallback = true
 			}
 			return os.NewSyscallError("setsockopt(TCP_FASTOPEN_CONNECT)", err)
@@ -74,7 +76,7 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 
 	nc, err := ld.Dialer.DialContext(ctx, network, address)
 	if err != nil {
-		if d.Fallback && canFallback {
+		if fallback && canFallback {
 			runtimeDialTFOSupport.casLinuxSendto()
 			return d.dialTFOFromSocket(ctx, network, address, b)
 		}
