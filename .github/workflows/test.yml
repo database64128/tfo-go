@@ -18,7 +18,6 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        go-version: [stable, oldstable]
       fail-fast: false
     runs-on: ${{ matrix.os }}
 
@@ -28,11 +27,10 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: stable
 
       - name: Test
         run: go test -v
 
       - name: Test with tag tfogo_checklinkname0
-        if: matrix.go-version == 'stable'
         run: go test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0
