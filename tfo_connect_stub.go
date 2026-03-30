@@ -5,6 +5,7 @@ package tfo
 import (
 	"context"
 	"net"
+	"net/netip"
 )
 
 const comptimeDialNoTFO = true
@@ -16,6 +17,9 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 	return nil, ErrPlatformUnsupported
 }
 
-func dialTCPAddr(_ string, _, _ *net.TCPAddr, _ []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
+	if d.Fallback {
+		return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
+	}
 	return nil, ErrPlatformUnsupported
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"syscall"
 
@@ -89,7 +90,60 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 	return nc.(*net.TCPConn), nil
 }
 
-func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
-	d := Dialer{Dialer: net.Dialer{LocalAddr: laddr}}
-	return d.dialTFO(context.Background(), network, raddr.String(), b)
+func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
+	fallback := d.Fallback
+	if fallback {
+		switch runtimeDialTFOSupport.load() {
+		case dialTFOSupportNone:
+			return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
+		case dialTFOSupportLinuxSendto:
+			return d.dialTCPAddrFromSocket(ctx, network, laddr, raddr, b)
+		}
+	}
+
+	var canFallback bool
+	ctrlCtxFn := d.ControlContext
+	ctrlFn := d.Control
+	ld := *d
+	// Avoid referencing d in ld.ControlContext to prevent it from being captured by the closure.
+	ld.ControlContext = func(ctx context.Context, network, address string, c syscall.RawConn) (err error) {
+		switch {
+		case ctrlCtxFn != nil:
+			if err = ctrlCtxFn(ctx, network, address, c); err != nil {
+				return err
+			}
+		case ctrlFn != nil:
+			if err = ctrlFn(network, address, c); err != nil {
+				return err
+			}
+		}
+
+		if cerr := c.Control(func(fd uintptr) {
+			err = setTFODialer(fd)
+		}); cerr != nil {
+			return cerr
+		}
+
+		if err != nil {
+			if fallback && errors.Is(err, errors.ErrUnsupported) {
+				canFallback = true
+			}
+			return os.NewSyscallError("setsockopt(TCP_FASTOPEN_CONNECT)", err)
+		}
+		return nil
+	}
+
+	c, err := ld.Dialer.DialTCP(ctx, network, laddr, raddr)
+	if err != nil {
+		if fallback && canFallback {
+			runtimeDialTFOSupport.casLinuxSendto()
+			return d.dialTCPAddrFromSocket(ctx, network, laddr, raddr, b)
+		}
+		return nil, err
+	}
+	if err = netConnWriteBytes(ctx, c, b); err != nil {
+		c.Close()
+		return nil, err
+	}
+	return c, nil
 }

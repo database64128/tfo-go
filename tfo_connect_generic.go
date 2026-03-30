@@ -5,6 +5,7 @@ package tfo
 import (
 	"context"
 	"net"
+	"net/netip"
 	"os"
 	"syscall"
 	"time"
@@ -80,6 +81,20 @@ func (d *Dialer) dialCtx(ctx context.Context) (context.Context, context.CancelFu
 			cancel2()
 		}
 	}
+}
+
+func (d *Dialer) dialTCPAddrFromSocket(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
+	ctx, cancel := d.dialCtx(ctx)
+	defer cancel()
+
+	la := net.TCPAddrFromAddrPort(laddr)
+	ra := net.TCPAddrFromAddrPort(raddr)
+
+	c, err := d.dialSingle(ctx, network, la, ra, b, nil)
+	if err != nil {
+		return nil, &net.OpError{Op: "dial", Net: network, Source: la, Addr: ra, Err: err}
+	}
+	return c, nil
 }
 
 func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {

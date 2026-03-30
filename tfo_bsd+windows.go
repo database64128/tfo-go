@@ -5,6 +5,7 @@ package tfo
 import (
 	"context"
 	"net"
+	"net/netip"
 )
 
 func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
@@ -14,11 +15,9 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 	return d.dialTFOFromSocket(ctx, network, address, b)
 }
 
-func dialTCPAddr(network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
-	var d Dialer
-	c, err := d.dialSingle(context.Background(), network, laddr, raddr, b, nil)
-	if err != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddr, Addr: raddr, Err: err}
+func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
+	if d.Fallback && runtimeDialTFOSupport.load() == dialTFOSupportNone {
+		return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
 	}
-	return c, nil
+	return d.dialTCPAddrFromSocket(ctx, network, laddr, raddr, b)
 }

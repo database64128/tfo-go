@@ -106,7 +106,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	}); err != nil {
 		if d.Fallback && canFallback {
 			runtimeDialTFOSupport.storeNone()
-			return d.dialAndWriteTCPConn(ctx, network, raddr.String(), b)
+			return d.dialTCPAndWrite(ctx, network, laddr.AddrPort(), raddr.AddrPort(), b)
 		}
 		return nil, err
 	}
