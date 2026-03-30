@@ -160,11 +160,12 @@ func (d *Dialer) dialAndWriteTCPConn(ctx context.Context, network, address strin
 	if err != nil {
 		return nil, err
 	}
-	if err = netConnWriteBytes(ctx, c, b); err != nil {
-		c.Close()
+	tc := c.(*net.TCPConn)
+	if err = netTCPConnWriteBytes(ctx, tc, b); err != nil {
+		tc.Close()
 		return nil, err
 	}
-	return c.(*net.TCPConn), nil
+	return tc, nil
 }
 
 func (d *Dialer) dialTCPAndWrite(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
@@ -172,7 +173,7 @@ func (d *Dialer) dialTCPAndWrite(ctx context.Context, network string, laddr, rad
 	if err != nil {
 		return nil, err
 	}
-	if err = netConnWriteBytes(ctx, c, b); err != nil {
+	if err = netTCPConnWriteBytes(ctx, c, b); err != nil {
 		c.Close()
 		return nil, err
 	}
@@ -285,6 +286,14 @@ func connWriteFunc[C writeDeadliner](ctx context.Context, c C, fn func(C) error)
 // netConnWriteBytes is a convenience wrapper around [connWriteFunc] for writing bytes to a [net.Conn].
 func netConnWriteBytes(ctx context.Context, c net.Conn, b []byte) error {
 	return connWriteFunc(ctx, c, func(c net.Conn) error {
+		_, err := c.Write(b)
+		return err
+	})
+}
+
+// netTCPConnWriteBytes is a convenience wrapper around [connWriteFunc] for writing bytes to a [*net.TCPConn].
+func netTCPConnWriteBytes(ctx context.Context, c *net.TCPConn, b []byte) error {
+	return connWriteFunc(ctx, c, func(c *net.TCPConn) error {
 		_, err := c.Write(b)
 		return err
 	})

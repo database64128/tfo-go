@@ -128,8 +128,8 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	}
 
 	if n < len(b) {
-		if err = netConnWriteBytes(ctx, c, b[n:]); err != nil {
-			c.Close()
+		if err = netTCPConnWriteBytes(ctx, tc, b[n:]); err != nil {
+			tc.Close()
 			return nil, err
 		}
 	}

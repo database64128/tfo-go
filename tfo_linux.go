@@ -83,11 +83,12 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 		}
 		return nil, err
 	}
-	if err = netConnWriteBytes(ctx, nc, b); err != nil {
-		nc.Close()
+	tc := nc.(*net.TCPConn)
+	if err = netTCPConnWriteBytes(ctx, tc, b); err != nil {
+		tc.Close()
 		return nil, err
 	}
-	return nc.(*net.TCPConn), nil
+	return tc, nil
 }
 
 func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
@@ -141,7 +142,7 @@ func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip
 		}
 		return nil, err
 	}
-	if err = netConnWriteBytes(ctx, c, b); err != nil {
+	if err = netTCPConnWriteBytes(ctx, c, b); err != nil {
 		c.Close()
 		return nil, err
 	}
