@@ -135,8 +135,23 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		return nil, err
 	}
 
+	// This call might get replaced with [runtime.AddCleanup] in the future.
 	runtime.SetFinalizer(fd, netFDClose)
-	return (*net.TCPConn)(unsafe.Pointer(&fd)), nil
+
+	tc := (*net.TCPConn)(unsafe.Pointer(&fd))
+
+	keepAliveCfg := d.KeepAliveConfig
+	if !keepAliveCfg.Enable && d.KeepAlive >= 0 {
+		keepAliveCfg = net.KeepAliveConfig{
+			Enable: true,
+			Idle:   d.KeepAlive,
+		}
+	}
+	if keepAliveCfg.Enable {
+		_ = tc.SetKeepAliveConfig(keepAliveCfg)
+	}
+
+	return tc, nil
 }
 
 func windowsSockaddrFromTCPAddr(a *net.TCPAddr, family int) (windows.Sockaddr, error) {

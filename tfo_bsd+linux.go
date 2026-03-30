@@ -115,6 +115,17 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	if err != nil {
 		return nil, err
 	}
+	tc := c.(*net.TCPConn)
+
+	// [net.FileConn] enables TCP keep-alive with default settings.
+	switch {
+	case d.KeepAliveConfig.Enable:
+		_ = tc.SetKeepAliveConfig(d.KeepAliveConfig)
+	case d.KeepAlive < 0:
+		_ = tc.SetKeepAlive(false)
+	case d.KeepAlive > 0:
+		_ = tc.SetKeepAlivePeriod(d.KeepAlive)
+	}
 
 	if n < len(b) {
 		if err = netConnWriteBytes(ctx, c, b[n:]); err != nil {
@@ -123,7 +134,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		}
 	}
 
-	return c.(*net.TCPConn), err
+	return tc, err
 }
 
 func unixSockaddrFromTCPAddr(a *net.TCPAddr, family int) (unix.Sockaddr, error) {

@@ -12,11 +12,6 @@ import (
 
 const comptimeDialNoTFO = false
 
-const (
-	defaultTCPKeepAlive  = 15 * time.Second
-	defaultFallbackDelay = 300 * time.Millisecond
-)
-
 // Boolean to int.
 func boolint(b bool) int {
 	if b {
@@ -53,30 +48,43 @@ func tcpAddrIs4(a *net.TCPAddr) bool {
 	return a != nil && a.IP.To4() != nil
 }
 
-func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialCtx(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		panic("nil context")
 	}
 	deadline := d.deadline(ctx, time.Now())
+	var cancel1, cancel2 context.CancelFunc
 	if !deadline.IsZero() {
 		if d, ok := ctx.Deadline(); !ok || deadline.Before(d) {
-			subCtx, cancel := context.WithDeadline(ctx, deadline)
-			defer cancel()
+			var subCtx context.Context
+			subCtx, cancel1 = context.WithDeadline(ctx, deadline)
 			ctx = subCtx
 		}
 	}
 	if oldCancel := d.Cancel; oldCancel != nil {
-		subCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		subCtx, cancel2 := context.WithCancel(ctx)
 		go func() {
 			select {
 			case <-oldCancel:
-				cancel()
+				cancel2()
 			case <-subCtx.Done():
 			}
 		}()
 		ctx = subCtx
 	}
+	return ctx, func() {
+		if cancel1 != nil {
+			cancel1()
+		}
+		if cancel2 != nil {
+			cancel2()
+		}
+	}
+}
+
+func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+	ctx, cancel := d.dialCtx(ctx)
+	defer cancel()
 
 	var laddr *net.TCPAddr
 	if d.LocalAddr != nil {
@@ -131,25 +139,7 @@ func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string,
 		primaries = addrs
 	}
 
-	var c *net.TCPConn
-	if len(fallbacks) > 0 {
-		c, err = d.dialParallel(ctx, network, laddr, primaries, fallbacks, b)
-	} else {
-		c, err = d.dialSerial(ctx, network, laddr, primaries, b)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if d.KeepAlive >= 0 {
-		c.SetKeepAlive(true)
-		ka := d.KeepAlive
-		if d.KeepAlive == 0 {
-			ka = defaultTCPKeepAlive
-		}
-		c.SetKeepAlivePeriod(ka)
-	}
-	return c, nil
+	return d.dialParallel(ctx, network, laddr, primaries, fallbacks, b)
 }
 
 // dialParallel races two copies of dialSerial, giving the first a
@@ -197,6 +187,7 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TC
 	// Start the timer for the fallback racer.
 	fallbackDelay := d.FallbackDelay
 	if fallbackDelay == 0 {
+		const defaultFallbackDelay = 300 * time.Millisecond
 		fallbackDelay = defaultFallbackDelay
 	}
 	fallbackTimer := time.NewTimer(fallbackDelay)
