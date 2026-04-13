@@ -79,3 +79,6 @@ func (fd *pFD) ConnectEx(ra windows.Sockaddr, b []byte) (n int, err error) {
 	}, unsafe.SliceData(b))
 	return
 }
+
+//go:linkname newFD net.newFD
+func newFD(sysfd windows.Handle, family, sotype int, net string) *netFD

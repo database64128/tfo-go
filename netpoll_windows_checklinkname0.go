@@ -38,9 +38,6 @@ type netFD struct {
 	raddr       net.Addr
 }
 
-//go:linkname newFD net.newFD
-func newFD(sysfd windows.Handle, family, sotype int, net string) (*netFD, error)
-
 //go:linkname netFDInit net.(*netFD).init
 func netFDInit(fd *netFD) error
 

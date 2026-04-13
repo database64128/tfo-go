@@ -77,3 +77,11 @@ func (fd *pFD) ConnectEx(ra windows.Sockaddr, b []byte) (n int, err error) {
 	})
 	return
 }
+
+//go:linkname newFD2 net.newFD
+func newFD2(sysfd windows.Handle, family, sotype int, net string) (*netFD, error)
+
+func newFD(sysfd windows.Handle, family, sotype int, net string) *netFD {
+	fd, _ := newFD2(sysfd, family, sotype, net) // err is always nil
+	return fd
+}

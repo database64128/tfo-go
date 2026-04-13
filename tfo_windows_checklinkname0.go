@@ -60,11 +60,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		return nil, os.NewSyscallError("WSASocket", err)
 	}
 
-	fd, err := newFD(handle, family, windows.SOCK_STREAM, network)
-	if err != nil {
-		windows.Closesocket(handle)
-		return nil, err
-	}
+	fd := newFD(handle, family, windows.SOCK_STREAM, network)
 
 	if err = setIPv6Only(handle, family, ipv6only); err != nil {
 		fd.Close()
