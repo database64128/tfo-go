@@ -88,12 +88,17 @@ func (d *Dialer) dialTCPAddrFromSocket(ctx context.Context, network string, ladd
 	ctx, cancel := d.dialCtx(ctx)
 	defer cancel()
 
-	la := net.TCPAddrFromAddrPort(laddr)
-	ra := net.TCPAddrFromAddrPort(raddr)
+	var laddrTCP, raddrTCP *net.TCPAddr
+	if laddr.IsValid() {
+		laddrTCP = net.TCPAddrFromAddrPort(laddr)
+	}
+	if raddr.IsValid() {
+		raddrTCP = net.TCPAddrFromAddrPort(raddr)
+	}
 
-	c, err := d.dialSingle(ctx, network, la, ra, b)
+	c, err := d.dialSingle(ctx, network, laddrTCP, raddrTCP, b)
 	if err != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: la, Addr: ra, Err: err}
+		return nil, &net.OpError{Op: "dial", Net: network, Source: laddrTCP, Addr: raddrTCP, Err: err}
 	}
 	return c, nil
 }

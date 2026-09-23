@@ -214,7 +214,7 @@ func (d *Dialer) DialTCP(ctx context.Context, network string, laddr, raddr netip
 		return d.Dialer.DialTCP(ctx, network, laddr, raddr)
 	}
 	if !networkIsTCP(network) {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddr(net.TCPAddrFromAddrPort(laddr)), Addr: opAddr(net.TCPAddrFromAddrPort(raddr)), Err: net.UnknownNetworkError(network)}
+		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddrPort(laddr), Addr: opAddrPort(raddr), Err: net.UnknownNetworkError(network)}
 	}
 	if d.DisableTFO {
 		return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
@@ -258,6 +258,13 @@ func opAddr(a *net.TCPAddr) net.Addr {
 		return nil
 	}
 	return a
+}
+
+func opAddrPort(addr netip.AddrPort) net.Addr {
+	if !addr.IsValid() {
+		return nil
+	}
+	return net.TCPAddrFromAddrPort(addr)
 }
 
 // aLongTimeAgo is a non-zero time, far in the past, used for immediate deadlines.
