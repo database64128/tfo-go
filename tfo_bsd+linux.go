@@ -34,7 +34,7 @@ func ctrlNetwork(network string, family int) string {
 	return "tcp6"
 }
 
-func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	family, ipv6only := favoriteDialAddrFamily(network, laddr, raddr)
 
 	fd, err := d.socket(family)
@@ -68,8 +68,16 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		return nil, err
 	}
 
-	if ctrlCtxFn != nil {
-		if err = ctrlCtxFn(ctx, ctrlNetwork(network, family), raddr.String(), rawConn); err != nil {
+	if d.ControlContext != nil || d.Control != nil {
+		ctrlNet := ctrlNetwork(network, family)
+		address := raddr.String()
+		switch {
+		case d.ControlContext != nil:
+			err = d.ControlContext(ctx, ctrlNet, address, rawConn)
+		case d.Control != nil:
+			err = d.Control(ctrlNet, address, rawConn)
+		}
+		if err != nil {
 			return nil, err
 		}
 	}

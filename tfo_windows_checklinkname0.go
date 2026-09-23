@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"runtime"
-	"syscall"
 	"unsafe"
 
 	"github.com/database64128/netx-go"
@@ -33,7 +32,7 @@ func setUpdateConnectContext(fd windows.Handle) error {
 	return windows.Setsockopt(fd, windows.SOL_SOCKET, windows.SO_UPDATE_CONNECT_CONTEXT, nil, 0)
 }
 
-func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte, ctrlCtxFn func(context.Context, string, string, syscall.RawConn) error) (*net.TCPConn, error) {
+func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
 	family, ipv6only := favoriteDialAddrFamily(network, laddr, raddr)
 
 	lsa, err := windowsSockaddrFromTCPAddr(laddr, family)
@@ -80,8 +79,18 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		runtimeDialTFOSupport.storeNone()
 	}
 
-	if ctrlCtxFn != nil {
-		if err = ctrlCtxFn(ctx, fd.ctrlNetwork(), raddr.String(), newRawConn(fd)); err != nil {
+	if d.ControlContext != nil || d.Control != nil {
+		ctrlNet := fd.ctrlNetwork()
+		address := raddr.String()
+		rawConn := newRawConn(fd)
+		var err error
+		switch {
+		case d.ControlContext != nil:
+			err = d.ControlContext(ctx, ctrlNet, address, rawConn)
+		case d.Control != nil:
+			err = d.Control(ctrlNet, address, rawConn)
+		}
+		if err != nil {
 			fd.Close()
 			return nil, err
 		}

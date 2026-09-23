@@ -91,7 +91,7 @@ func (d *Dialer) dialTCPAddrFromSocket(ctx context.Context, network string, ladd
 	la := net.TCPAddrFromAddrPort(laddr)
 	ra := net.TCPAddrFromAddrPort(raddr)
 
-	c, err := d.dialSingle(ctx, network, la, ra, b, nil)
+	c, err := d.dialSingle(ctx, network, la, ra, b)
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: la, Addr: ra, Err: err}
 	}
@@ -268,18 +268,12 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			}
 		}
 
-		ctrlCtxFn := d.ControlContext
-		if ctrlCtxFn == nil && d.Control != nil {
-			ctrlCtxFn = func(ctx context.Context, network, address string, c syscall.RawConn) error {
-				return d.Control(network, address, c)
-			}
-		}
-
-		c, err := d.dialSingle(dialCtx, network, laddr, ra, b, ctrlCtxFn)
+		c, err := d.dialSingle(dialCtx, network, laddr, ra, b)
 		if err == nil {
 			return c, nil
 		}
 		if firstErr == nil {
+			// err is *net.OpError when TFO fallback happens.
 			var ok bool
 			firstErr, ok = err.(*net.OpError)
 			if !ok {
