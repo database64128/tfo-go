@@ -421,18 +421,18 @@ var dialerCases = []dialerTestCase{
 
 var dialTCPFuncCases = [...]struct {
 	name string
-	dial func(d *Dialer, ctx context.Context, raddr netip.AddrPort, b []byte) (net.Conn, error)
+	dial func(d *Dialer, ctx context.Context, network string, raddr netip.AddrPort, b []byte) (net.Conn, error)
 }{
 	{
 		name: "DialContext",
-		dial: func(d *Dialer, ctx context.Context, raddr netip.AddrPort, b []byte) (net.Conn, error) {
-			return d.DialContext(ctx, "tcp", raddr.String(), b)
+		dial: func(d *Dialer, ctx context.Context, network string, raddr netip.AddrPort, b []byte) (net.Conn, error) {
+			return d.DialContext(ctx, network, raddr.String(), b)
 		},
 	},
 	{
 		name: "DialTCP",
-		dial: func(d *Dialer, ctx context.Context, raddr netip.AddrPort, b []byte) (net.Conn, error) {
-			return d.DialTCP(ctx, "tcp", netip.AddrPort{}, raddr, b)
+		dial: func(d *Dialer, ctx context.Context, network string, raddr netip.AddrPort, b []byte) (net.Conn, error) {
+			return d.DialTCP(ctx, network, netip.AddrPort{}, raddr, b)
 		},
 	},
 }
@@ -640,6 +640,63 @@ func TestDialCtrlFn(t *testing.T) {
 	}
 }
 
+func TestDialWrongNetworkError(t *testing.T) {
+	for _, c := range dialerCases {
+		t.Run(c.name, func(t *testing.T) {
+			c.checkSkip(t)
+			c.setRuntimeFallback(t)
+			for _, dialTCPFuncCase := range dialTCPFuncCases {
+				t.Run(dialTCPFuncCase.name, func(t *testing.T) {
+					for _, wrongNetworkCase := range [...]struct {
+						dialNetwork   string
+						listenAddress string
+					}{
+						{"tcp4", "[::1]:"},
+						{"tcp6", "127.0.0.1:"},
+					} {
+						t.Run(wrongNetworkCase.dialNetwork, func(t *testing.T) {
+							testDialWrongNetworkError(t, c.dialer, dialTCPFuncCase.dial, wrongNetworkCase.dialNetwork, wrongNetworkCase.listenAddress)
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
+func testDialWrongNetworkError(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error), network, address string) {
+	lc := ListenConfig{DisableTFO: comptimeListenNoTFO}
+	ln, err := lc.Listen(t.Context(), "tcp", address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().(*net.TCPAddr).AddrPort()
+	t.Log("Started listener on", addr)
+
+	var wg sync.WaitGroup
+	defer func() {
+		ln.Close()
+		wg.Wait()
+	}()
+	wg.Go(func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			if !errors.Is(err, net.ErrClosed) {
+				t.Error(err)
+			}
+			return
+		}
+		t.Errorf("Accepted %v, want no connection", conn.RemoteAddr())
+		conn.Close()
+	})
+
+	c, err := dialTCP(&d, t.Context(), network, addr, hello)
+	if err == nil {
+		c.Close()
+		t.Fatal("dialTCP did not fail")
+	}
+}
+
 // TestListenTFOStatus ensures that [ListenConfig.TFO] reports the correct status.
 func TestListenTFOStatus(t *testing.T) {
 	for _, c := range listenConfigCases {
@@ -775,7 +832,7 @@ func testListenCtrlFn(t *testing.T, lc ListenConfig) {
 	testRawConnControl(t, ln.(syscall.Conn))
 }
 
-func testDialCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error), raddr netip.AddrPort) {
+func testDialCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error), raddr netip.AddrPort) {
 	var success bool
 
 	d.Control = func(network, address string, c syscall.RawConn) error {
@@ -784,7 +841,7 @@ func testDialCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Contex
 		})
 	}
 
-	c, err := dialTCP(&d, t.Context(), raddr, hello)
+	c, err := dialTCP(&d, t.Context(), "tcp", raddr, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +854,7 @@ func testDialCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Contex
 	testRawConnControl(t, c.(syscall.Conn))
 }
 
-func testDialCtrlCtxFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error), raddr netip.AddrPort) {
+func testDialCtrlCtxFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error), raddr netip.AddrPort) {
 	type contextKey int
 
 	const (
@@ -814,7 +871,7 @@ func testDialCtrlCtxFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Con
 	}
 
 	ctx := context.WithValue(t.Context(), ctxKey, ctxVal)
-	c, err := dialTCP(&d, ctx, raddr, hello)
+	c, err := dialTCP(&d, ctx, "tcp", raddr, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -827,7 +884,7 @@ func testDialCtrlCtxFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Con
 	testRawConnControl(t, c.(syscall.Conn))
 }
 
-func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error), raddr netip.AddrPort) {
+func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error), raddr netip.AddrPort) {
 	var ctrlCtxFnCalled bool
 
 	d.Control = func(network, address string, c syscall.RawConn) error {
@@ -840,7 +897,7 @@ func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dia
 		return nil
 	}
 
-	c, err := dialTCP(&d, t.Context(), raddr, hello)
+	c, err := dialTCP(&d, t.Context(), "tcp", raddr, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -851,7 +908,7 @@ func testDialCtrlCtxFnSupersedesCtrlFn(t *testing.T, d Dialer, dialTCP func(*Dia
 	}
 }
 
-func testAddrFunctions(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error)) {
+func testAddrFunctions(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error)) {
 	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
 	if err != nil {
 		t.Fatal(err)
@@ -867,7 +924,7 @@ func testAddrFunctions(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Di
 		t.Fatalf("expected non-zero port, got %d", addr.Port)
 	}
 
-	c, err := dialTCP(&d, t.Context(), addr.AddrPort(), hello)
+	c, err := dialTCP(&d, t.Context(), "tcp", addr.AddrPort(), hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -935,7 +992,7 @@ func readUntilEOF(r io.Reader, expectedData []byte, t *testing.T) {
 	}
 }
 
-func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error)) {
+func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error)) {
 	t.Logf("c->s payload: %v", helloworld)
 	t.Logf("s->c payload: %v", worldhello)
 
@@ -945,7 +1002,7 @@ func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer,
 	}
 	lntcp := ln.(*net.TCPListener)
 	defer lntcp.Close()
-	addr := ln.Addr().(*net.TCPAddr).AddrPort()
+	addr := lntcp.Addr().(*net.TCPAddr).AddrPort()
 	t.Log("Started listener on", addr)
 
 	ctrlCh := make(chan struct{})
@@ -965,7 +1022,7 @@ func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer,
 		close(ctrlCh)
 	}()
 
-	c, err := dialTCP(&d, t.Context(), addr, hello)
+	c, err := dialTCP(&d, t.Context(), "tcp", addr, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -978,7 +1035,7 @@ func testClientWriteReadServerReadWrite(t *testing.T, lc ListenConfig, d Dialer,
 	<-ctrlCh
 }
 
-func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error)) {
+func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error)) {
 	t.Logf("c->s payload: %v", helloworld)
 	t.Logf("s->c payload: %v", worldhello)
 
@@ -988,7 +1045,7 @@ func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer,
 	}
 	lntcp := ln.(*net.TCPListener)
 	defer lntcp.Close()
-	addr := ln.Addr().(*net.TCPAddr).AddrPort()
+	addr := lntcp.Addr().(*net.TCPAddr).AddrPort()
 	t.Log("Started listener on", addr)
 
 	ctrlCh := make(chan struct{})
@@ -1008,7 +1065,7 @@ func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer,
 		close(ctrlCh)
 	}()
 
-	c, err := dialTCP(&d, t.Context(), addr, nil)
+	c, err := dialTCP(&d, t.Context(), "tcp", addr, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1022,7 +1079,7 @@ func testServerWriteReadClientReadWrite(t *testing.T, lc ListenConfig, d Dialer,
 	<-ctrlCh
 }
 
-func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error)) {
+func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error)) {
 	t.Logf("c->s payload: %v", helloworld)
 	t.Logf("s->c payload: %v", worldhello)
 
@@ -1032,7 +1089,7 @@ func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer, dialTCP f
 	}
 	lntcp := ln.(*net.TCPListener)
 	defer lntcp.Close()
-	addr := ln.Addr().(*net.TCPAddr).AddrPort()
+	addr := lntcp.Addr().(*net.TCPAddr).AddrPort()
 	t.Log("Started listener on", addr)
 
 	ctrlCh := make(chan struct{})
@@ -1052,7 +1109,7 @@ func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer, dialTCP f
 		close(ctrlCh)
 	}()
 
-	c, err := dialTCP(&d, t.Context(), addr, hello)
+	c, err := dialTCP(&d, t.Context(), "tcp", addr, hello)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1065,7 +1122,7 @@ func testClientServerReadFrom(t *testing.T, lc ListenConfig, d Dialer, dialTCP f
 	<-ctrlCh
 }
 
-func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, netip.AddrPort, []byte) (net.Conn, error)) {
+func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error)) {
 	t.Logf("payload: %v", helloWorldSentence)
 
 	ln, err := lc.Listen(t.Context(), "tcp", "[::1]:")
@@ -1074,7 +1131,7 @@ func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dial
 	}
 	lntcp := ln.(*net.TCPListener)
 	defer lntcp.Close()
-	addr := ln.Addr().(*net.TCPAddr).AddrPort()
+	addr := lntcp.Addr().(*net.TCPAddr).AddrPort()
 	t.Log("Started listener on", addr)
 
 	ctrlCh := make(chan struct{})
@@ -1092,7 +1149,7 @@ func testSetDeadline(t *testing.T, lc ListenConfig, d Dialer, dialTCP func(*Dial
 		close(ctrlCh)
 	}()
 
-	c, err := dialTCP(&d, t.Context(), addr, helloWorldSentence[:1])
+	c, err := dialTCP(&d, t.Context(), "tcp", addr, helloWorldSentence[:1])
 	if err != nil {
 		t.Fatal(err)
 	}
