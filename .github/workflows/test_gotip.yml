@@ -3,6 +3,9 @@ name: Test with gotip
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
@@ -26,7 +29,7 @@ jobs:
           gotip download
 
       - name: Test
-        run: gotip test -v
+        run: gotip test -v ./...
 
       - name: Test with tag tfogo_checklinkname0
-        run: gotip test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0
+        run: gotip test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0 ./...

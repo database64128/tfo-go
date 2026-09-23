@@ -12,6 +12,9 @@ on:
       - 'README.md'
       - 'LICENSE'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test
@@ -31,7 +34,7 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Test
-        run: go test -v
+        run: go test -v ./...
 
       - name: Test with tag tfogo_checklinkname0
-        run: go test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0
+        run: go test -v -ldflags '-checklinkname=0' -tags tfogo_checklinkname0 ./...
