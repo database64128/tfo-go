@@ -645,28 +645,24 @@ func TestDialWrongNetworkError(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			c.checkSkip(t)
 			c.setRuntimeFallback(t)
-			for _, dialTCPFuncCase := range dialTCPFuncCases {
-				t.Run(dialTCPFuncCase.name, func(t *testing.T) {
-					for _, wrongNetworkCase := range [...]struct {
-						dialNetwork   string
-						listenAddress string
-					}{
-						{"tcp4", "[::1]:"},
-						{"tcp6", "127.0.0.1:"},
-					} {
-						t.Run(wrongNetworkCase.dialNetwork, func(t *testing.T) {
-							testDialWrongNetworkError(t, c.dialer, dialTCPFuncCase.dial, wrongNetworkCase.dialNetwork, wrongNetworkCase.listenAddress)
-						})
-					}
+			for _, wrongNetworkCase := range [...]struct {
+				dialNetwork   string
+				listenAddress string
+			}{
+				{"tcp4", "[::1]:"},
+				{"tcp6", "127.0.0.1:"},
+			} {
+				t.Run(wrongNetworkCase.dialNetwork, func(t *testing.T) {
+					testDialWrongNetworkError(t, c.dialer, wrongNetworkCase.dialNetwork, wrongNetworkCase.listenAddress)
 				})
 			}
 		})
 	}
 }
 
-func testDialWrongNetworkError(t *testing.T, d Dialer, dialTCP func(*Dialer, context.Context, string, netip.AddrPort, []byte) (net.Conn, error), network, address string) {
+func testDialWrongNetworkError(t *testing.T, d Dialer, dialNetwork, listenAddress string) {
 	lc := ListenConfig{DisableTFO: comptimeListenNoTFO}
-	ln, err := lc.Listen(t.Context(), "tcp", address)
+	ln, err := lc.Listen(t.Context(), "tcp", listenAddress)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,10 +686,17 @@ func testDialWrongNetworkError(t *testing.T, d Dialer, dialTCP func(*Dialer, con
 		conn.Close()
 	})
 
-	c, err := dialTCP(&d, t.Context(), network, addr, hello)
+	// We only test DialContext's network filtering.
+	// DialTCP does not really do filtering, so it's not really worth testing.
+	// On macOS, DialTCP("tcp6", "127.0.0.1:") succeeds when MPTCP is enabled,
+	// because AF_MULTIPATH sockets ignore IPV6_V6ONLY.
+	c, err := d.DialContext(t.Context(), dialNetwork, addr.String(), hello)
 	if err == nil {
 		c.Close()
 		t.Fatal("dialTCP did not fail")
+	}
+	if e, ok := errors.AsType[*net.AddrError](err); !ok {
+		t.Errorf("DialContext() err = %#v, want %T", err, e)
 	}
 }
 

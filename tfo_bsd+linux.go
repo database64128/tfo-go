@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"syscall"
 
@@ -27,14 +28,7 @@ func setNoDelay(fd int, noDelay int) error {
 	return unix.SetsockoptInt(fd, unix.IPPROTO_TCP, unix.TCP_NODELAY, noDelay)
 }
 
-func ctrlNetwork(network string, family int) string {
-	if network == "tcp4" || family == unix.AF_INET {
-		return "tcp4"
-	}
-	return "tcp6"
-}
-
-func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
 	family, ipv6only := favoriteDialAddrFamily(network, laddr, raddr)
 
 	fd, err := d.socket(family)
@@ -82,8 +76,8 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		}
 	}
 
-	if laddr != nil {
-		lsa, err := unixSockaddrFromTCPAddr(laddr, family)
+	if laddr.IsValid() {
+		lsa, err := unixSockaddrFromAddrPort(laddr, family)
 		if err != nil {
 			return nil, err
 		}
@@ -98,7 +92,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		}
 	}
 
-	rsa, err := unixSockaddrFromTCPAddr(raddr, family)
+	rsa, err := unixSockaddrFromAddrPort(raddr, family)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +108,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	}); err != nil {
 		if d.Fallback && canFallback {
 			runtimeDialTFOSupport.storeNone()
-			return d.dialTCPAndWrite(ctx, network, laddr.AddrPort(), raddr.AddrPort(), b)
+			return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
 		}
 		return nil, err
 	}
@@ -145,36 +139,25 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	return tc, err
 }
 
-func unixSockaddrFromTCPAddr(a *net.TCPAddr, family int) (unix.Sockaddr, error) {
-	if a == nil {
-		return nil, nil
-	}
-	ip := a.IP
+func unixSockaddrFromAddrPort(addr netip.AddrPort, family int) (unix.Sockaddr, error) {
+	ip := addr.Addr()
 	switch family {
 	case unix.AF_INET:
-		if len(ip) == 0 {
-			ip = net.IPv4zero
-		}
-		ip4 := ip.To4()
-		if ip4 == nil {
+		if !ip.Is4() && !ip.Is4In6() {
 			return nil, &net.AddrError{Err: "non-IPv4 address", Addr: ip.String()}
 		}
 		return &unix.SockaddrInet4{
-			Port: a.Port,
-			Addr: [4]byte(ip4),
+			Port: int(addr.Port()),
+			Addr: ip.As4(),
 		}, nil
 	case unix.AF_INET6:
-		if len(ip) == 0 || ip.Equal(net.IPv4zero) {
-			ip = net.IPv6zero
-		}
-		ip6 := ip.To16()
-		if ip6 == nil {
+		if !ip.Is6() {
 			return nil, &net.AddrError{Err: "non-IPv6 address", Addr: ip.String()}
 		}
 		return &unix.SockaddrInet6{
-			Port:   a.Port,
-			ZoneId: uint32(netx.ZoneCache.Index(a.Zone)),
-			Addr:   [16]byte(ip6),
+			Port:   int(addr.Port()),
+			ZoneId: uint32(netx.ZoneCache.Index(ip.Zone())),
+			Addr:   ip.As16(),
 		}, nil
 	}
 	return nil, &net.AddrError{Err: "invalid address family", Addr: ip.String()}

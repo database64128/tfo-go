@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"unsafe"
@@ -32,14 +33,17 @@ func setUpdateConnectContext(fd windows.Handle) error {
 	return windows.Setsockopt(fd, windows.SOL_SOCKET, windows.SO_UPDATE_CONNECT_CONTEXT, nil, 0)
 }
 
-func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *net.TCPAddr, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
 	family, ipv6only := favoriteDialAddrFamily(network, laddr, raddr)
 
-	lsa, err := windowsSockaddrFromTCPAddr(laddr, family)
-	if err != nil {
-		return nil, err
-	}
-	if lsa == nil {
+	var lsa windows.Sockaddr
+	if laddr.IsValid() {
+		var err error
+		lsa, err = windowsSockaddrFromAddrPort(laddr, family)
+		if err != nil {
+			return nil, err
+		}
+	} else {
 		// ConnectEx requires a bound socket.
 		switch family {
 		case windows.AF_INET:
@@ -49,7 +53,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 		}
 	}
 
-	rsa, err := windowsSockaddrFromTCPAddr(raddr, family)
+	rsa, err := windowsSockaddrFromAddrPort(raddr, family)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +84,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	}
 
 	if d.ControlContext != nil || d.Control != nil {
-		ctrlNet := fd.ctrlNetwork()
+		ctrlNet := ctrlNetwork(network, family)
 		address := raddr.String()
 		rawConn := newRawConn(fd)
 		var err error
@@ -159,36 +163,25 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr *n
 	return tc, nil
 }
 
-func windowsSockaddrFromTCPAddr(a *net.TCPAddr, family int) (windows.Sockaddr, error) {
-	if a == nil {
-		return nil, nil
-	}
-	ip := a.IP
+func windowsSockaddrFromAddrPort(addr netip.AddrPort, family int) (windows.Sockaddr, error) {
+	ip := addr.Addr()
 	switch family {
 	case windows.AF_INET:
-		if len(ip) == 0 {
-			ip = net.IPv4zero
-		}
-		ip4 := ip.To4()
-		if ip4 == nil {
+		if !ip.Is4() && !ip.Is4In6() {
 			return nil, &net.AddrError{Err: "non-IPv4 address", Addr: ip.String()}
 		}
 		return &windows.SockaddrInet4{
-			Port: a.Port,
-			Addr: [4]byte(ip4),
+			Port: int(addr.Port()),
+			Addr: ip.As4(),
 		}, nil
 	case windows.AF_INET6:
-		if len(ip) == 0 || ip.Equal(net.IPv4zero) {
-			ip = net.IPv6zero
-		}
-		ip6 := ip.To16()
-		if ip6 == nil {
+		if !ip.Is6() {
 			return nil, &net.AddrError{Err: "non-IPv6 address", Addr: ip.String()}
 		}
 		return &windows.SockaddrInet6{
-			Port:   a.Port,
-			ZoneId: uint32(netx.ZoneCache.Index(a.Zone)),
-			Addr:   [16]byte(ip6),
+			Port:   int(addr.Port()),
+			ZoneId: uint32(netx.ZoneCache.Index(ip.Zone())),
+			Addr:   ip.As16(),
 		}, nil
 	}
 	return nil, &net.AddrError{Err: "invalid address family", Addr: ip.String()}

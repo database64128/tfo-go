@@ -44,9 +44,6 @@ func netFDInit(fd *netFD) error
 //go:linkname netFDClose net.(*netFD).Close
 func netFDClose(fd *netFD) error
 
-//go:linkname netFDCtrlNetwork net.(*netFD).ctrlNetwork
-func netFDCtrlNetwork(fd *netFD) string
-
 //go:linkname netFDWrite net.(*netFD).Write
 func netFDWrite(fd *netFD, p []byte) (int, error)
 
@@ -59,10 +56,6 @@ func (fd *netFD) init() error {
 
 func (fd *netFD) Close() error {
 	return netFDClose(fd)
-}
-
-func (fd *netFD) ctrlNetwork() string {
-	return netFDCtrlNetwork(fd)
 }
 
 func (fd *netFD) Write(p []byte) (int, error) {

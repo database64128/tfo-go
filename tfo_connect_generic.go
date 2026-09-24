@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"slices"
 	"syscall"
 	"time"
 )
@@ -31,7 +32,7 @@ func wrapSyscallError(name string, err error) error {
 }
 
 // Modified from favoriteAddrFamily in src/net/ipsock_posix.go
-func favoriteDialAddrFamily(network string, laddr, raddr *net.TCPAddr) (family int, ipv6only bool) {
+func favoriteDialAddrFamily(network string, laddr, raddr netip.AddrPort) (family int, ipv6only bool) {
 	switch network {
 	case "tcp4":
 		return syscall.AF_INET, false
@@ -39,14 +40,17 @@ func favoriteDialAddrFamily(network string, laddr, raddr *net.TCPAddr) (family i
 		return syscall.AF_INET6, true
 	}
 
-	if tcpAddrIs4(laddr) || tcpAddrIs4(raddr) {
+	if laddr.Addr().Is4() || laddr.Addr().Is4In6() || raddr.Addr().Is4() || raddr.Addr().Is4In6() {
 		return syscall.AF_INET, false
 	}
 	return syscall.AF_INET6, false
 }
 
-func tcpAddrIs4(a *net.TCPAddr) bool {
-	return a != nil && a.IP.To4() != nil
+func ctrlNetwork(network string, family int) string {
+	if network == "tcp4" || family == syscall.AF_INET {
+		return "tcp4"
+	}
+	return "tcp6"
 }
 
 func (d *Dialer) dialCtx(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -88,17 +92,9 @@ func (d *Dialer) dialTCPAddrFromSocket(ctx context.Context, network string, ladd
 	ctx, cancel := d.dialCtx(ctx)
 	defer cancel()
 
-	var laddrTCP, raddrTCP *net.TCPAddr
-	if laddr.IsValid() {
-		laddrTCP = net.TCPAddrFromAddrPort(laddr)
-	}
-	if raddr.IsValid() {
-		raddrTCP = net.TCPAddrFromAddrPort(raddr)
-	}
-
-	c, err := d.dialSingle(ctx, network, laddrTCP, raddrTCP, b)
+	c, err := d.dialSingle(ctx, network, laddr, raddr, b)
 	if err != nil {
-		return nil, &net.OpError{Op: "dial", Net: network, Source: laddrTCP, Addr: raddrTCP, Err: err}
+		return nil, &net.OpError{Op: "dial", Net: network, Source: opAddrPort(laddr), Addr: opAddrPort(raddr), Err: err}
 	}
 	return c, nil
 }
@@ -107,7 +103,7 @@ func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string,
 	ctx, cancel := d.dialCtx(ctx)
 	defer cancel()
 
-	var laddr *net.TCPAddr
+	var laddr netip.AddrPort
 	if d.LocalAddr != nil {
 		la, ok := d.LocalAddr.(*net.TCPAddr)
 		if !ok {
@@ -122,7 +118,7 @@ func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string,
 				},
 			}
 		}
-		laddr = la
+		laddr = la.AddrPort()
 	}
 
 	host, port, err := net.SplitHostPort(address)
@@ -133,31 +129,37 @@ func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string,
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: err}
 	}
-	ipaddrs, err := d.Resolver.LookupIPAddr(ctx, host)
+	ips, err := d.Resolver.LookupNetIP(ctx, ipNetwork(network), host)
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: err}
 	}
 
-	var addrs []*net.TCPAddr
-
-	for _, ipaddr := range ipaddrs {
-		if laddr != nil && !laddr.IP.IsUnspecified() && !matchAddrFamily(laddr.IP, ipaddr.IP) {
-			continue
+	if laddr.IsValid() {
+		for i, ip := range ips {
+			if (ip.Is4() || ip.Is4In6()) != (laddr.Addr().Is4() || laddr.Addr().Is4In6()) {
+				ips = slices.Delete(ips, i, i+1)
+			}
 		}
-		addrs = append(addrs, &net.TCPAddr{
-			IP:   ipaddr.IP,
-			Port: portNum,
-			Zone: ipaddr.Zone,
-		})
 	}
 
-	var primaries, fallbacks []*net.TCPAddr
+	var primaries, fallbacks []netip.AddrPort
 	if d.FallbackDelay >= 0 && network == "tcp" {
-		primaries, fallbacks = partition(addrs, func(a *net.TCPAddr) bool {
-			return a.IP.To4() != nil
-		})
+		var primaryLabel bool
+		for i, ip := range ips {
+			label := ip.Is4() || ip.Is4In6()
+			addr := netip.AddrPortFrom(ip, uint16(portNum))
+			if i == 0 || label == primaryLabel {
+				primaryLabel = label
+				primaries = append(primaries, addr)
+			} else {
+				fallbacks = append(fallbacks, addr)
+			}
+		}
 	} else {
-		primaries = addrs
+		primaries = make([]netip.AddrPort, len(ips))
+		for i, ip := range ips {
+			primaries[i] = netip.AddrPortFrom(ip, uint16(portNum))
+		}
 	}
 
 	return d.dialParallel(ctx, network, laddr, primaries, fallbacks, b)
@@ -167,7 +169,7 @@ func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string,
 // head start. It returns the first established connection and
 // closes the others. Otherwise it returns an error from the first
 // primary address.
-func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TCPAddr, primaries, fallbacks []*net.TCPAddr, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialParallel(ctx context.Context, network string, laddr netip.AddrPort, primaries, fallbacks []netip.AddrPort, b []byte) (*net.TCPConn, error) {
 	if len(fallbacks) == 0 {
 		return d.dialSerial(ctx, network, laddr, primaries, b)
 	}
@@ -246,13 +248,13 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr *net.TC
 
 // dialSerial connects to a list of addresses in sequence, returning
 // either the first successful connection, or the first error.
-func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPAddr, ras []*net.TCPAddr, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialSerial(ctx context.Context, network string, laddr netip.AddrPort, ras []netip.AddrPort, b []byte) (*net.TCPConn, error) {
 	var firstErr error // The error from the first address is most relevant.
 
 	for i, ra := range ras {
 		select {
 		case <-ctx.Done():
-			return nil, &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: ctx.Err()}
+			return nil, &net.OpError{Op: "dial", Net: network, Source: opAddrPort(laddr), Addr: opAddrPort(ra), Err: ctx.Err()}
 		default:
 		}
 
@@ -262,7 +264,7 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			if err != nil {
 				// Ran out of time.
 				if firstErr == nil {
-					firstErr = &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: err}
+					firstErr = &net.OpError{Op: "dial", Net: network, Source: opAddrPort(laddr), Addr: opAddrPort(ra), Err: err}
 				}
 				break
 			}
@@ -282,7 +284,7 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 			var ok bool
 			firstErr, ok = err.(*net.OpError)
 			if !ok {
-				firstErr = &net.OpError{Op: "dial", Net: network, Source: d.LocalAddr, Addr: ra, Err: err}
+				firstErr = &net.OpError{Op: "dial", Net: network, Source: opAddrPort(laddr), Addr: opAddrPort(ra), Err: err}
 			}
 		}
 	}
@@ -293,28 +295,15 @@ func (d *Dialer) dialSerial(ctx context.Context, network string, laddr *net.TCPA
 	return nil, firstErr
 }
 
-func matchAddrFamily(x, y net.IP) bool {
-	return x.To4() != nil && y.To4() != nil || x.To16() != nil && x.To4() == nil && y.To16() != nil && y.To4() == nil
-}
-
-// partition divides an address list into two categories, using a
-// strategy function to assign a boolean label to each address.
-// The first address, and any with a matching label, are returned as
-// primaries, while addresses with the opposite label are returned
-// as fallbacks. For non-empty inputs, primaries is guaranteed to be
-// non-empty.
-func partition(addrs []*net.TCPAddr, strategy func(*net.TCPAddr) bool) (primaries, fallbacks []*net.TCPAddr) {
-	var primaryLabel bool
-	for i, addr := range addrs {
-		label := strategy(addr)
-		if i == 0 || label == primaryLabel {
-			primaryLabel = label
-			primaries = append(primaries, addr)
-		} else {
-			fallbacks = append(fallbacks, addr)
-		}
+func ipNetwork(network string) string {
+	switch network {
+	case "tcp4":
+		return "ip4"
+	case "tcp6":
+		return "ip6"
+	default:
+		return "ip"
 	}
-	return
 }
 
 func minNonzeroTime(a, b time.Time) time.Time {
