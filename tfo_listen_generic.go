@@ -10,7 +10,7 @@ import (
 	"syscall"
 )
 
-func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
+func (lc *ListenConfig) listen(ctx context.Context, network, address string) (net.Listener, error) {
 	// Copy these values to avoid referencing lc in llc.Control.
 	ctrlFn := lc.Control
 	backlog := lc.Backlog

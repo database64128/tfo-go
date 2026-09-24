@@ -74,7 +74,7 @@ func (lc *ListenConfig) Listen(ctx context.Context, network, address string) (ne
 	if lc.tfoDisabled() || !networkIsTCP(network) || lc.tfoNeedsFallback() {
 		return lc.ListenConfig.Listen(ctx, network, address)
 	}
-	return lc.listenTFO(ctx, network, address) // tfo_darwin.go, tfo_listen_generic.go, tfo_listen_stub.go
+	return lc.listen(ctx, network, address) // tfo_darwin.go, tfo_listen_generic.go, tfo_listen_stub.go
 }
 
 // ListenContext is like [net.ListenContext] but enables TFO whenever possible.
@@ -98,7 +98,7 @@ func ListenTCP(network string, laddr *net.TCPAddr) (*net.TCPListener, error) {
 		address = laddr.String()
 	}
 	var lc ListenConfig
-	ln, err := lc.listenTFO(context.Background(), network, address) // tfo_darwin.go, tfo_listen_generic.go, tfo_listen_stub.go
+	ln, err := lc.listen(context.Background(), network, address) // tfo_darwin.go, tfo_listen_generic.go, tfo_listen_stub.go
 	if err != nil {
 		return nil, err
 	}
@@ -155,19 +155,6 @@ func (d *Dialer) dialAndWrite(ctx context.Context, network, address string, b []
 	return c, nil
 }
 
-func (d *Dialer) dialAndWriteTCPConn(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
-	c, err := d.Dialer.DialContext(ctx, network, address)
-	if err != nil {
-		return nil, err
-	}
-	tc := c.(*net.TCPConn)
-	if err = netTCPConnWriteBytes(ctx, tc, b); err != nil {
-		tc.Close()
-		return nil, err
-	}
-	return tc, nil
-}
-
 func (d *Dialer) dialTCPAndWrite(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
 	c, err := d.Dialer.DialTCP(ctx, network, laddr, raddr)
 	if err != nil {
@@ -194,11 +181,7 @@ func (d *Dialer) DialContext(ctx context.Context, network, address string, b []b
 	if d.DisableTFO || !networkIsTCP(network) {
 		return d.dialAndWrite(ctx, network, address, b)
 	}
-	tc, err := d.dialTFO(ctx, network, address, b) // tfo_bsd+windows.go, tfo_connect_stub.go, tfo_linux.go
-	if err != nil {
-		return nil, err // return nil [net.Conn] instead of non-nil [net.Conn] with nil [*net.TCPConn] pointer
-	}
-	return tc, nil
+	return d.dial(ctx, network, address, b) // tfo_bsd+windows.go, tfo_connect_stub.go, tfo_linux.go
 }
 
 // Dial is like [net.Dialer.Dial] but enables TFO whenever possible,

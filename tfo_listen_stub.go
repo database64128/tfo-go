@@ -9,6 +9,6 @@ import (
 
 const comptimeListenNoTFO = true
 
-func (*ListenConfig) listenTFO(_ context.Context, _, _ string) (net.Listener, error) {
+func (*ListenConfig) listen(_ context.Context, _, _ string) (net.Listener, error) {
 	return nil, ErrPlatformUnsupported
 }

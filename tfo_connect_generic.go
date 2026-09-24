@@ -88,7 +88,7 @@ func (d *Dialer) dialCtx(ctx context.Context) (context.Context, context.CancelFu
 	}
 }
 
-func (d *Dialer) dialTCPAddrFromSocket(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialTCPFromSocket(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
 	ctx, cancel := d.dialCtx(ctx)
 	defer cancel()
 
@@ -99,7 +99,7 @@ func (d *Dialer) dialTCPAddrFromSocket(ctx context.Context, network string, ladd
 	return c, nil
 }
 
-func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialFromSocket(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
 	ctx, cancel := d.dialCtx(ctx)
 	defer cancel()
 
@@ -169,7 +169,7 @@ func (d *Dialer) dialTFOFromSocket(ctx context.Context, network, address string,
 // head start. It returns the first established connection and
 // closes the others. Otherwise it returns an error from the first
 // primary address.
-func (d *Dialer) dialParallel(ctx context.Context, network string, laddr netip.AddrPort, primaries, fallbacks []netip.AddrPort, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialParallel(ctx context.Context, network string, laddr netip.AddrPort, primaries, fallbacks []netip.AddrPort, b []byte) (net.Conn, error) {
 	if len(fallbacks) == 0 {
 		return d.dialSerial(ctx, network, laddr, primaries, b)
 	}
@@ -178,7 +178,7 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr netip.A
 	defer close(returned)
 
 	type dialResult struct {
-		*net.TCPConn
+		net.Conn
 		error
 		primary bool
 		done    bool
@@ -192,7 +192,7 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr netip.A
 		}
 		c, err := d.dialSerial(ctx, network, laddr, ras, b)
 		select {
-		case results <- dialResult{TCPConn: c, error: err, primary: primary, done: true}:
+		case results <- dialResult{Conn: c, error: err, primary: primary, done: true}:
 		case <-returned:
 			if c != nil {
 				c.Close()
@@ -225,7 +225,7 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr netip.A
 
 		case res := <-results:
 			if res.error == nil {
-				return res.TCPConn, nil
+				return res.Conn, nil
 			}
 			if res.primary {
 				primary = res
@@ -248,7 +248,7 @@ func (d *Dialer) dialParallel(ctx context.Context, network string, laddr netip.A
 
 // dialSerial connects to a list of addresses in sequence, returning
 // either the first successful connection, or the first error.
-func (d *Dialer) dialSerial(ctx context.Context, network string, laddr netip.AddrPort, ras []netip.AddrPort, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dialSerial(ctx context.Context, network string, laddr netip.AddrPort, ras []netip.AddrPort, b []byte) (net.Conn, error) {
 	var firstErr error // The error from the first address is most relevant.
 
 	for i, ra := range ras {

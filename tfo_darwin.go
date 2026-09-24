@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func (lc *ListenConfig) listenTFO(ctx context.Context, network, address string) (net.Listener, error) {
+func (lc *ListenConfig) listen(ctx context.Context, network, address string) (net.Listener, error) {
 	// When setting TCP_FASTOPEN_FORCE_ENABLE, the socket must be in the TCPS_CLOSED state.
 	// This means setting it before listen().
 	//

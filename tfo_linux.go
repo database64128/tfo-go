@@ -32,14 +32,14 @@ func (a *atomicDialTFOSupport) casLinuxSendto() bool {
 	return a.v.CompareAndSwap(uint32(dialTFOSupportDefault), uint32(dialTFOSupportLinuxSendto))
 }
 
-func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte) (*net.TCPConn, error) {
+func (d *Dialer) dial(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
 	fallback := d.Fallback
 	if fallback {
 		switch runtimeDialTFOSupport.load() {
 		case dialTFOSupportNone:
-			return d.dialAndWriteTCPConn(ctx, network, address, b)
+			return d.dialAndWrite(ctx, network, address, b)
 		case dialTFOSupportLinuxSendto:
-			return d.dialTFOFromSocket(ctx, network, address, b)
+			return d.dialFromSocket(ctx, network, address, b)
 		}
 	}
 
@@ -75,20 +75,19 @@ func (d *Dialer) dialTFO(ctx context.Context, network, address string, b []byte)
 		return nil
 	}
 
-	nc, err := ld.Dialer.DialContext(ctx, network, address)
+	c, err := ld.Dialer.DialContext(ctx, network, address)
 	if err != nil {
 		if fallback && canFallback {
 			runtimeDialTFOSupport.casLinuxSendto()
-			return d.dialTFOFromSocket(ctx, network, address, b)
+			return d.dialFromSocket(ctx, network, address, b)
 		}
 		return nil, err
 	}
-	tc := nc.(*net.TCPConn)
-	if err = netTCPConnWriteBytes(ctx, tc, b); err != nil {
-		tc.Close()
+	if err = netConnWriteBytes(ctx, c, b); err != nil {
+		c.Close()
 		return nil, err
 	}
-	return tc, nil
+	return c, nil
 }
 
 func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
@@ -98,7 +97,7 @@ func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip
 		case dialTFOSupportNone:
 			return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
 		case dialTFOSupportLinuxSendto:
-			return d.dialTCPAddrFromSocket(ctx, network, laddr, raddr, b)
+			return d.dialTCPFromSocket(ctx, network, laddr, raddr, b)
 		}
 	}
 
@@ -138,7 +137,7 @@ func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip
 	if err != nil {
 		if fallback && canFallback {
 			runtimeDialTFOSupport.casLinuxSendto()
-			return d.dialTCPAddrFromSocket(ctx, network, laddr, raddr, b)
+			return d.dialTCPFromSocket(ctx, network, laddr, raddr, b)
 		}
 		return nil, err
 	}
