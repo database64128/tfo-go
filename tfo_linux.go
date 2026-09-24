@@ -35,7 +35,7 @@ func (a *atomicDialTFOSupport) casLinuxSendto() bool {
 func (d *Dialer) dial(ctx context.Context, network, address string, b []byte) (net.Conn, error) {
 	fallback := d.Fallback
 	if fallback {
-		switch runtimeDialTFOSupport.load() {
+		switch runtimeDialTFOSupport.Load() {
 		case dialTFOSupportNone:
 			return d.dialAndWrite(ctx, network, address, b)
 		case dialTFOSupportLinuxSendto:
@@ -93,7 +93,7 @@ func (d *Dialer) dial(ctx context.Context, network, address string, b []byte) (n
 func (d *Dialer) dialTCP(ctx context.Context, network string, laddr, raddr netip.AddrPort, b []byte) (*net.TCPConn, error) {
 	fallback := d.Fallback
 	if fallback {
-		switch runtimeDialTFOSupport.load() {
+		switch runtimeDialTFOSupport.Load() {
 		case dialTFOSupportNone:
 			return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
 		case dialTFOSupportLinuxSendto:

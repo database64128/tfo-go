@@ -51,7 +51,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr ne
 			unix.Close(fd)
 			return nil, os.NewSyscallError("setsockopt("+setTFODialerFromSocketSockoptName+")", err)
 		}
-		runtimeDialTFOSupport.storeNone()
+		runtimeDialTFOSupport.StoreNone()
 	}
 
 	f := os.NewFile(uintptr(fd), "")
@@ -107,7 +107,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr ne
 		return err
 	}); err != nil {
 		if d.Fallback && canFallback {
-			runtimeDialTFOSupport.storeNone()
+			runtimeDialTFOSupport.StoreNone()
 			return d.dialTCPAndWrite(ctx, network, laddr, raddr, b)
 		}
 		return nil, err

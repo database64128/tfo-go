@@ -117,11 +117,11 @@ type atomicDialTFOSupport struct {
 	v atomic.Uint32
 }
 
-func (a *atomicDialTFOSupport) load() dialTFOSupport {
+func (a *atomicDialTFOSupport) Load() dialTFOSupport {
 	return dialTFOSupport(a.v.Load())
 }
 
-func (a *atomicDialTFOSupport) storeNone() {
+func (a *atomicDialTFOSupport) StoreNone() {
 	a.v.Store(uint32(dialTFOSupportNone))
 }
 
@@ -169,7 +169,7 @@ func (d *Dialer) dialTCPAndWrite(ctx context.Context, network string, laddr, rad
 
 // TFO returns true if the next dial call will attempt to enable TFO.
 func (d *Dialer) TFO() bool {
-	return !d.DisableTFO && (!d.Fallback || !comptimeDialNoTFO && runtimeDialTFOSupport.load() != dialTFOSupportNone)
+	return !d.DisableTFO && (!d.Fallback || !comptimeDialNoTFO && runtimeDialTFOSupport.Load() != dialTFOSupportNone)
 }
 
 // DialContext is like [net.Dialer.DialContext] but enables TFO whenever possible,

@@ -80,7 +80,7 @@ func (d *Dialer) dialSingle(ctx context.Context, network string, laddr, raddr ne
 			fd.Close()
 			return nil, os.NewSyscallError("setsockopt(TCP_FASTOPEN)", err)
 		}
-		runtimeDialTFOSupport.storeNone()
+		runtimeDialTFOSupport.StoreNone()
 	}
 
 	if d.ControlContext != nil || d.Control != nil {

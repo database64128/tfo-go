@@ -72,10 +72,9 @@ func (lc *ListenConfig) listen(ctx context.Context, network, address string) (ne
 	return ln, nil
 }
 
-const AF_MULTIPATH = 39
-
 func (d *Dialer) socket(domain int) (fd int, err error) {
 	if d.MultipathTCP() {
+		const AF_MULTIPATH = 39
 		domain = AF_MULTIPATH
 	}
 
