@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"slices"
 	"syscall"
 	"time"
 )
@@ -119,6 +118,27 @@ func (d *Dialer) dialFromSocket(ctx context.Context, network, address string, b 
 			}
 		}
 		laddr = la.AddrPort()
+
+		laddrIs4 := laddr.Addr().Is4() || laddr.Addr().Is4In6()
+		switch {
+		case network == "tcp":
+			if laddrIs4 {
+				network = "tcp4"
+			} else {
+				network = "tcp6"
+			}
+		case network == "tcp4" && !laddrIs4 || network == "tcp6" && laddrIs4:
+			return nil, &net.OpError{
+				Op:     "dial",
+				Net:    network,
+				Source: nil,
+				Addr:   nil,
+				Err: &net.AddrError{
+					Err:  "no suitable address found",
+					Addr: laddr.String(),
+				},
+			}
+		}
 	}
 
 	host, port, err := net.SplitHostPort(address)
@@ -132,14 +152,6 @@ func (d *Dialer) dialFromSocket(ctx context.Context, network, address string, b 
 	ips, err := d.Resolver.LookupNetIP(ctx, ipNetwork(network), host)
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Source: nil, Addr: nil, Err: err}
-	}
-
-	if laddr.IsValid() {
-		for i, ip := range ips {
-			if (ip.Is4() || ip.Is4In6()) != (laddr.Addr().Is4() || laddr.Addr().Is4In6()) {
-				ips = slices.Delete(ips, i, i+1)
-			}
-		}
 	}
 
 	var primaries, fallbacks []netip.AddrPort
